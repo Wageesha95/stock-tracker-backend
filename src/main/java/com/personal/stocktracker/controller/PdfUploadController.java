@@ -53,21 +53,26 @@ public class PdfUploadController {
 
     private LocalDate extractDateFromFilename(String filename) {
         if (filename == null) return null;
+        log.info("Extracting date from filename: {}", filename);
 
         // Try named month format first (26_March_2026)
         Matcher nm = FILENAME_DATE_NAMED.matcher(filename);
         if (nm.find()) {
-            return LocalDate.parse(nm.group(1) + " " + nm.group(2) + " " + nm.group(3),
+            String dateStr = nm.group(1) + " " + nm.group(2) + " " + nm.group(3);
+            log.info("Matched named month format: {}", dateStr);
+            return LocalDate.parse(dateStr,
                     DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.ENGLISH));
         }
 
         // Try numeric format (26_03_2026)
         Matcher m = FILENAME_DATE_NUMERIC.matcher(filename);
         if (m.find()) {
+            log.info("Matched numeric format: {}_{}_{}", m.group(1), m.group(2), m.group(3));
             return LocalDate.parse(m.group(1) + "/" + m.group(2) + "/" + m.group(3),
                     DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         }
 
+        log.warn("No date pattern matched in filename: {}", filename);
         return null;
     }
 
