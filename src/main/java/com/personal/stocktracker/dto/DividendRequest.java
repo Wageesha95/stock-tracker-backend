@@ -27,6 +27,8 @@ public class DividendRequest {
     @NotNull(message = "Date is required")
     private LocalDate date;
 
+    private LocalDate xdDate;
+
     private Integer shares;
 
     private Integer scripShares;

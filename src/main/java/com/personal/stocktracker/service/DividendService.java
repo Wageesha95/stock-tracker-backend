@@ -69,6 +69,7 @@ public class DividendService {
                 .type(request.getType())
                 .amount(request.getType() == DividendType.CASH ? request.getAmount() : BigDecimal.ZERO)
                 .date(request.getDate())
+                .xdDate(request.getXdDate())
                 .shares(request.getType() == DividendType.CASH ? request.getShares() : 0)
                 .scripShares(request.getType() == DividendType.SCRIP ? request.getScripShares() : 0)
                 .totalAmount(totalAmount)
@@ -90,6 +91,7 @@ public class DividendService {
 
         dividend.setType(request.getType());
         dividend.setDate(request.getDate());
+        dividend.setXdDate(request.getXdDate());
         dividend.setAmount(request.getType() == DividendType.CASH ? request.getAmount() : BigDecimal.ZERO);
         dividend.setShares(request.getType() == DividendType.CASH ? request.getShares() : 0);
         dividend.setScripShares(request.getType() == DividendType.SCRIP ? request.getScripShares() : 0);

@@ -34,6 +34,8 @@ public class Dividend {
 
     private LocalDate date;
 
+    private LocalDate xdDate;
+
     private Integer shares;
 
     private Integer scripShares;
