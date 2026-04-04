@@ -1,10 +1,9 @@
 package com.personal.stocktracker.controller;
 
+import com.personal.stocktracker.config.JwtUtil;
 import com.personal.stocktracker.document.User;
 import com.personal.stocktracker.dto.AuthResponse;
 import com.personal.stocktracker.repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -22,29 +21,27 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final JwtUtil jwtUtil;
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> body, HttpServletRequest request) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
         String username = body.get("username");
         String password = body.get("password");
 
         try {
-            Authentication auth = authenticationManager.authenticate(
+            authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(username, password)
             );
 
-            SecurityContextHolder.getContext().setAuthentication(auth);
-            HttpSession session = request.getSession(true);
-            session.setAttribute("SPRING_SECURITY_CONTEXT", SecurityContextHolder.getContext());
+            User user = userRepository.findByUsername(username).orElseThrow();
+            String token = jwtUtil.generateToken(user.getUsername(), user.getRole());
 
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow();
-
-            return ResponseEntity.ok(AuthResponse.builder()
-                    .id(user.getId())
-                    .username(user.getUsername())
-                    .role(user.getRole())
-                    .build());
+            return ResponseEntity.ok(Map.of(
+                    "id", user.getId(),
+                    "username", user.getUsername(),
+                    "role", user.getRole(),
+                    "token", token
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(401)
                     .body(Map.of("error", "Invalid credentials"));
@@ -59,8 +56,7 @@ public class AuthController {
         }
 
         String username = auth.getName();
-        User user = userRepository.findByUsername(username)
-                .orElseThrow();
+        User user = userRepository.findByUsername(username).orElseThrow();
 
         return ResponseEntity.ok(AuthResponse.builder()
                 .id(user.getId())
@@ -70,12 +66,7 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
-        SecurityContextHolder.clearContext();
+    public ResponseEntity<?> logout() {
         return ResponseEntity.ok(Map.of("message", "Logged out"));
     }
 }

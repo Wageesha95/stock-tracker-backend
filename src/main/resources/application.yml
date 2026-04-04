@@ -9,3 +9,6 @@ spring:
 app:
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
+  jwt:
+    secret: ${JWT_SECRET:stock-tracker-jwt-secret-key-change-in-production-2026}
+    expiration: ${JWT_EXPIRATION:86400000}
