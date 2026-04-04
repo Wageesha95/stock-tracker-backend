@@ -40,5 +40,7 @@ public class Dividend {
 
     private BigDecimal totalAmount;
 
+    private Boolean taxed;
+
     private LocalDateTime createdAt;
 }

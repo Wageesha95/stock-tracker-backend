@@ -54,6 +54,7 @@ public class DividendService {
                 .shares(request.getType() == DividendType.CASH ? request.getShares() : 0)
                 .scripShares(request.getType() == DividendType.SCRIP ? request.getScripShares() : 0)
                 .totalAmount(totalAmount)
+                .taxed(request.getTaxed() != null ? request.getTaxed() : true)
                 .createdAt(LocalDateTime.now())
                 .build();
 
