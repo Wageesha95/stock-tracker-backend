@@ -65,6 +65,23 @@ public class DividendService {
         return dividendRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode);
     }
 
+    public Dividend updateDividend(String id, DividendRequest request) {
+        Dividend dividend = dividendRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Dividend not found with id: " + id));
+        dividend.setType(request.getType());
+        dividend.setDate(request.getDate());
+        dividend.setAmount(request.getType() == DividendType.CASH ? request.getAmount() : BigDecimal.ZERO);
+        dividend.setShares(request.getType() == DividendType.CASH ? request.getShares() : 0);
+        dividend.setScripShares(request.getType() == DividendType.SCRIP ? request.getScripShares() : 0);
+        if (request.getTotalAmount() != null && request.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+            dividend.setTotalAmount(request.getTotalAmount());
+        } else if (request.getType() == DividendType.CASH && request.getAmount() != null && request.getShares() != null) {
+            dividend.setTotalAmount(request.getAmount().multiply(BigDecimal.valueOf(request.getShares())));
+        }
+        dividend.setTaxed(request.getTaxed() != null ? request.getTaxed() : true);
+        return dividendRepository.save(dividend);
+    }
+
     public void deleteDividend(String id) {
         if (!dividendRepository.existsById(id)) {
             throw new RuntimeException("Dividend not found with id: " + id);

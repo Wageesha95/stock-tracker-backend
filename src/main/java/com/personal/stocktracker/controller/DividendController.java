@@ -38,6 +38,11 @@ public class DividendController {
         return ResponseEntity.ok(dividendService.getDividendsByCompany(currentUsername(), code));
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<Dividend> updateDividend(@PathVariable String id, @Valid @RequestBody DividendRequest request) {
+        return ResponseEntity.ok(dividendService.updateDividend(id, request));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteDividend(@PathVariable String id) {
         dividendService.deleteDividend(id);
