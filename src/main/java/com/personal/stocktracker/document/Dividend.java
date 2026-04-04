@@ -42,5 +42,7 @@ public class Dividend {
 
     private Boolean taxed;
 
+    private String transactionId;
+
     private LocalDateTime createdAt;
 }

@@ -3,5 +3,6 @@ package com.personal.stocktracker.document;
 public enum TransactionType {
     BUY,
     SELL,
-    RIGHTS
+    RIGHTS,
+    SCRIP_DIVIDEND
 }
