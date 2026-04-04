@@ -45,6 +45,16 @@ public class DataSeeder implements CommandLineRunner {
             log.info("Created user: imwageesha");
         }
 
+        if (userRepository.findByUsername("navod").isEmpty()) {
+            userRepository.save(User.builder()
+                    .username("navod")
+                    .password(passwordEncoder.encode("dimsum"))
+                    .role("USER")
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            log.info("Created user: navod");
+        }
+
         if (userRepository.findByUsername("admin").isEmpty()) {
             userRepository.save(User.builder()
                     .username("admin")

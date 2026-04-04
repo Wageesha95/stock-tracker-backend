@@ -42,7 +42,10 @@ public class PdfUploadController {
     private final PdfUploadRecordRepository pdfUploadRecordRepository;
     private final TransactionRepository transactionRepository;
 
-    private static final Pattern FILENAME_DATE_PATTERN = Pattern.compile("(\\d{2})_(\\d{2})_(\\d{4})");
+    // DD_MM_YYYY format
+    private static final Pattern FILENAME_DATE_NUMERIC = Pattern.compile("(\\d{2})_(\\d{2})_(\\d{4})");
+    // DD_Month_YYYY format (e.g. 26_March_2026)
+    private static final Pattern FILENAME_DATE_NAMED = Pattern.compile("(\\d{1,2})_(January|February|March|April|May|June|July|August|September|October|November|December)_(\\d{4})", Pattern.CASE_INSENSITIVE);
 
     private String currentUsername() {
         return SecurityContextHolder.getContext().getAuthentication().getName();
@@ -50,11 +53,21 @@ public class PdfUploadController {
 
     private LocalDate extractDateFromFilename(String filename) {
         if (filename == null) return null;
-        Matcher m = FILENAME_DATE_PATTERN.matcher(filename);
+
+        // Try named month format first (26_March_2026)
+        Matcher nm = FILENAME_DATE_NAMED.matcher(filename);
+        if (nm.find()) {
+            return LocalDate.parse(nm.group(1) + " " + nm.group(2) + " " + nm.group(3),
+                    DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.ENGLISH));
+        }
+
+        // Try numeric format (26_03_2026)
+        Matcher m = FILENAME_DATE_NUMERIC.matcher(filename);
         if (m.find()) {
             return LocalDate.parse(m.group(1) + "/" + m.group(2) + "/" + m.group(3),
                     DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         }
+
         return null;
     }
 
