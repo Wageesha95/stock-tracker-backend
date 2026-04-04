@@ -61,33 +61,35 @@ public class DashboardController {
         List<PortfolioItem> portfolio = new ArrayList<>();
         for (Map.Entry<String, List<Transaction>> entry : grouped.entrySet()) {
             String code = entry.getKey();
-            List<Transaction> txns = entry.getValue();
+            List<Transaction> txns = new ArrayList<>(entry.getValue());
+            txns.sort(Comparator.comparing(Transaction::getDate));
 
-            int totalBuyShares = 0;
-            BigDecimal totalBuyCost = BigDecimal.ZERO;
-            int totalSellShares = 0;
-            BigDecimal totalSellRevenue = BigDecimal.ZERO;
+            // FIFO running calculation
+            int sharesHeld = 0;
+            BigDecimal costBasis = BigDecimal.ZERO;
+            BigDecimal realizedGain = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
                 if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
-                    totalBuyShares += tx.getCount();
-                    totalBuyCost = totalBuyCost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
+                    sharesHeld += tx.getCount();
+                    costBasis = costBasis.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
                 } else if (tx.getType() == TransactionType.SELL) {
-                    totalSellShares += tx.getCount();
-                    totalSellRevenue = totalSellRevenue.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission()));
+                    BigDecimal avgAtSell = sharesHeld > 0
+                            ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+                    BigDecimal costRemoved = avgAtSell.multiply(BigDecimal.valueOf(tx.getCount()));
+                    BigDecimal sellRevenue = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
+                    realizedGain = realizedGain.add(sellRevenue.subtract(costRemoved));
+                    costBasis = costBasis.subtract(costRemoved);
+                    sharesHeld -= tx.getCount();
                 }
             }
 
-            int sharesHeld = Math.max(totalBuyShares - totalSellShares, 0);
-            BigDecimal avgBuyPrice = totalBuyShares > 0
-                    ? totalBuyCost.divide(BigDecimal.valueOf(totalBuyShares), 4, RoundingMode.HALF_UP)
+            sharesHeld = Math.max(sharesHeld, 0);
+            BigDecimal avgBuyPrice = sharesHeld > 0
+                    ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-
-            BigDecimal realizedGain = BigDecimal.ZERO;
-            if (totalSellShares > 0) {
-                realizedGain = totalSellRevenue.subtract(avgBuyPrice.multiply(BigDecimal.valueOf(totalSellShares)))
-                        .setScale(2, RoundingMode.HALF_UP);
-            }
+            realizedGain = realizedGain.setScale(2, RoundingMode.HALF_UP);
 
             MarketData md = marketDataMap.get(code);
             BigDecimal lastTrade = md != null ? md.getLastTrade() : BigDecimal.ZERO;
