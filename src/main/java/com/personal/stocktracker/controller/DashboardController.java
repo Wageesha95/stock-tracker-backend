@@ -155,37 +155,97 @@ public class DashboardController {
         }
         realizedItems.sort((a, b) -> b.getSellDate().compareTo(a.getSellDate()));
 
-        // --- Opportunity Cost ---
+        // --- Opportunity Cost (FIFO running balance) ---
+        // Sort all transactions chronologically
+        List<Transaction> chronologicalTx = new ArrayList<>(allTransactions);
+        chronologicalTx.sort(Comparator.comparing(Transaction::getDate));
+
         BigDecimal totalInterest = BigDecimal.ZERO;
         List<Map<String, Object>> breakdown = new ArrayList<>();
 
-        for (Transaction tx : allTransactions) {
-            long days = ChronoUnit.DAYS.between(tx.getDate(), today);
-            if (days < 0) days = 0;
+        // Track running cost basis per company (FIFO)
+        Map<String, BigDecimal> companyCostBasis = new LinkedHashMap<>();
+        Map<String, Integer> companyShares = new LinkedHashMap<>();
+
+        // Calculate interest on running balance between each transaction date
+        BigDecimal runningTotalCost = BigDecimal.ZERO;
+        LocalDate lastDate = null;
+
+        for (Transaction tx : chronologicalTx) {
+            // Calculate interest for the period since last transaction
+            if (lastDate != null && runningTotalCost.compareTo(BigDecimal.ZERO) > 0) {
+                long periodDays = ChronoUnit.DAYS.between(lastDate, tx.getDate());
+                if (periodDays > 0) {
+                    BigDecimal periodInterest = runningTotalCost.multiply(annualRate)
+                            .multiply(BigDecimal.valueOf(periodDays))
+                            .divide(BigDecimal.valueOf(365), 4, RoundingMode.HALF_UP);
+                    totalInterest = totalInterest.add(periodInterest);
+                }
+            }
+
+            String code = tx.getCompanyCode();
+            BigDecimal cb = companyCostBasis.getOrDefault(code, BigDecimal.ZERO);
+            int shares = companyShares.getOrDefault(code, 0);
 
             if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
                 BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission());
-                BigDecimal interest = amount.multiply(annualRate).multiply(BigDecimal.valueOf(days))
-                        .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
-                totalInterest = totalInterest.add(interest);
-
-                Company comp = companyMap.get(tx.getCompanyCode());
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("companyCode", tx.getCompanyCode());
-                item.put("companyName", comp != null ? comp.getName() : tx.getCompanyCode());
-                item.put("date", tx.getDate().toString());
-                item.put("amount", amount.setScale(2, RoundingMode.HALF_UP));
-                item.put("days", days);
-                item.put("interest", interest);
-                breakdown.add(item);
+                cb = cb.add(amount);
+                shares += tx.getCount();
+                runningTotalCost = runningTotalCost.add(amount);
             } else if (tx.getType() == TransactionType.SELL) {
-                BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
-                BigDecimal interest = amount.multiply(annualRate).multiply(BigDecimal.valueOf(days))
-                        .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
-                totalInterest = totalInterest.subtract(interest);
+                BigDecimal avgAtSell = shares > 0
+                        ? cb.divide(BigDecimal.valueOf(shares), 4, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO;
+                BigDecimal costRemoved = avgAtSell.multiply(BigDecimal.valueOf(tx.getCount()));
+                cb = cb.subtract(costRemoved);
+                shares -= tx.getCount();
+                runningTotalCost = runningTotalCost.subtract(costRemoved);
+            }
+
+            companyCostBasis.put(code, cb);
+            companyShares.put(code, shares);
+            lastDate = tx.getDate();
+        }
+
+        // Interest from last transaction to today
+        if (lastDate != null && runningTotalCost.compareTo(BigDecimal.ZERO) > 0) {
+            long remainingDays = ChronoUnit.DAYS.between(lastDate, today);
+            if (remainingDays > 0) {
+                BigDecimal remainingInterest = runningTotalCost.multiply(annualRate)
+                        .multiply(BigDecimal.valueOf(remainingDays))
+                        .divide(BigDecimal.valueOf(365), 4, RoundingMode.HALF_UP);
+                totalInterest = totalInterest.add(remainingInterest);
             }
         }
-        breakdown.sort((a, b) -> ((String) b.get("date")).compareTo((String) a.get("date")));
+
+        // Build breakdown per company (current invested amount and total days)
+        for (Map.Entry<String, BigDecimal> entry : companyCostBasis.entrySet()) {
+            String code = entry.getKey();
+            BigDecimal currentCost = entry.getValue();
+            if (currentCost.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            Company comp = companyMap.get(code);
+            // Find first buy date for this company
+            LocalDate firstDate = chronologicalTx.stream()
+                    .filter(t -> t.getCompanyCode().equals(code))
+                    .map(Transaction::getDate)
+                    .findFirst().orElse(today);
+            long days = ChronoUnit.DAYS.between(firstDate, today);
+
+            BigDecimal interest = currentCost.multiply(annualRate)
+                    .multiply(BigDecimal.valueOf(days))
+                    .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("companyCode", code);
+            item.put("companyName", comp != null ? comp.getName() : code);
+            item.put("date", firstDate.toString());
+            item.put("amount", currentCost.setScale(2, RoundingMode.HALF_UP));
+            item.put("days", days);
+            item.put("interest", interest);
+            breakdown.add(item);
+        }
+        breakdown.sort((a, b) -> ((BigDecimal) b.get("interest")).compareTo((BigDecimal) a.get("interest")));
 
         // --- Sector Summary ---
         Map<String, IndustryGroup> groupMap = industryGroupRepository.findAll().stream()
