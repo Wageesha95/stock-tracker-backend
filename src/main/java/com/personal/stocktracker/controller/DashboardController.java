@@ -69,10 +69,10 @@ public class DashboardController {
             BigDecimal totalSellRevenue = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
-                if (tx.getType() == TransactionType.BUY) {
+                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
                     totalBuyShares += tx.getCount();
                     totalBuyCost = totalBuyCost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
-                } else {
+                } else if (tx.getType() == TransactionType.SELL) {
                     totalSellShares += tx.getCount();
                     totalSellRevenue = totalSellRevenue.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission()));
                 }
@@ -128,10 +128,10 @@ public class DashboardController {
             BigDecimal buyCost = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
-                if (tx.getType() == TransactionType.BUY) {
+                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
                     buyShares += tx.getCount();
                     buyCost = buyCost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
-                } else {
+                } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avg = buyShares > 0 ? buyCost.divide(BigDecimal.valueOf(buyShares), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
                     BigDecimal sellRev = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
                     BigDecimal costBasis = avg.multiply(BigDecimal.valueOf(tx.getCount()));
@@ -161,7 +161,7 @@ public class DashboardController {
             long days = ChronoUnit.DAYS.between(tx.getDate(), today);
             if (days < 0) days = 0;
 
-            if (tx.getType() == TransactionType.BUY) {
+            if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
                 BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission());
                 BigDecimal interest = amount.multiply(annualRate).multiply(BigDecimal.valueOf(days))
                         .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
@@ -176,7 +176,7 @@ public class DashboardController {
                 item.put("days", days);
                 item.put("interest", interest);
                 breakdown.add(item);
-            } else {
+            } else if (tx.getType() == TransactionType.SELL) {
                 BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
                 BigDecimal interest = amount.multiply(annualRate).multiply(BigDecimal.valueOf(days))
                         .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
