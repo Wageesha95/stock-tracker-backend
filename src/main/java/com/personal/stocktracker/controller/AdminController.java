@@ -64,9 +64,12 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already exists"));
         }
 
+        String readPassword = body.get("readPassword");
+
         User user = User.builder()
                 .username(username)
                 .password(passwordEncoder.encode(password))
+                .readPassword(readPassword != null && !readPassword.isBlank() ? passwordEncoder.encode(readPassword) : null)
                 .role(role.toUpperCase())
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -92,6 +95,10 @@ public class AdminController {
 
         if (body.containsKey("password") && !body.get("password").isBlank()) {
             user.setPassword(passwordEncoder.encode(body.get("password")));
+        }
+
+        if (body.containsKey("readPassword") && !body.get("readPassword").isBlank()) {
+            user.setReadPassword(passwordEncoder.encode(body.get("readPassword")));
         }
 
         if (body.containsKey("role") && !body.get("role").isBlank()) {

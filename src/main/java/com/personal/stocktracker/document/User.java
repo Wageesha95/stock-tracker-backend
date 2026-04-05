@@ -25,6 +25,8 @@ public class User {
 
     private String password;
 
+    private String readPassword;
+
     private String role;
 
     private LocalDateTime createdAt;

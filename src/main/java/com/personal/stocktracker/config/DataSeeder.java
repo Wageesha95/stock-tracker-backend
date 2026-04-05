@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -46,6 +47,7 @@ public class DataSeeder implements CommandLineRunner {
             userRepository.save(User.builder()
                     .username("imwageesha")
                     .password(passwordEncoder.encode("123123"))
+                    .readPassword(passwordEncoder.encode("read123"))
                     .role("USER")
                     .createdAt(LocalDateTime.now())
                     .build());
@@ -56,6 +58,7 @@ public class DataSeeder implements CommandLineRunner {
             userRepository.save(User.builder()
                     .username("navod")
                     .password(passwordEncoder.encode("dimsum"))
+                    .readPassword(passwordEncoder.encode("readdimsum"))
                     .role("USER")
                     .createdAt(LocalDateTime.now())
                     .build());
@@ -66,10 +69,27 @@ public class DataSeeder implements CommandLineRunner {
             userRepository.save(User.builder()
                     .username("admin")
                     .password(passwordEncoder.encode("admin"))
+                    .readPassword(passwordEncoder.encode("readadmin"))
                     .role("ADMIN")
                     .createdAt(LocalDateTime.now())
                     .build());
             log.info("Created user: admin");
+        }
+
+        // Backfill readPassword for existing users that don't have one
+        Map<String, String> readPasswords = Map.of(
+                "imwageesha", "read123",
+                "navod", "readdimsum",
+                "admin", "readadmin"
+        );
+        for (var entry : readPasswords.entrySet()) {
+            userRepository.findByUsername(entry.getKey()).ifPresent(user -> {
+                if (user.getReadPassword() == null) {
+                    user.setReadPassword(passwordEncoder.encode(entry.getValue()));
+                    userRepository.save(user);
+                    log.info("Backfilled readPassword for user: {}", entry.getKey());
+                }
+            });
         }
     }
 

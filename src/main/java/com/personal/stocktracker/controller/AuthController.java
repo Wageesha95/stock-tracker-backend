@@ -10,8 +10,10 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -22,30 +24,43 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
         String username = body.get("username");
         String password = body.get("password");
 
-        try {
-            authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(username, password)
-            );
-
-            User user = userRepository.findByUsername(username).orElseThrow();
-            String token = jwtUtil.generateToken(user.getUsername(), user.getRole());
-
-            return ResponseEntity.ok(Map.of(
-                    "id", user.getId(),
-                    "username", user.getUsername(),
-                    "role", user.getRole(),
-                    "token", token
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.status(401)
-                    .body(Map.of("error", "Invalid credentials"));
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
         }
+
+        boolean readMode = false;
+
+        // Check read password first
+        if (user.getReadPassword() != null && passwordEncoder.matches(password, user.getReadPassword())) {
+            readMode = true;
+        } else {
+            // Try normal password via AuthenticationManager
+            try {
+                authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(username, password)
+                );
+            } catch (Exception e) {
+                return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
+            }
+        }
+
+        String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), readMode);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", user.getId());
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole());
+        response.put("readMode", readMode);
+        response.put("token", token);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/me")
