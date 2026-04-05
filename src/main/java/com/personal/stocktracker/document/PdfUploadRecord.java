@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -17,6 +18,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "pdf_uploads")
+@CompoundIndex(name = "user_tradeDate_broker_unique", def = "{'userId': 1, 'tradeDate': 1, 'brokerId': 1}", unique = true)
 public class PdfUploadRecord {
 
     @Id
@@ -27,8 +29,9 @@ public class PdfUploadRecord {
 
     private String filename;
 
-    @Indexed(unique = true)
     private LocalDate tradeDate;
+
+    private String brokerId;
 
     private List<String> transactionIds;
 

@@ -1,9 +1,11 @@
 package com.personal.stocktracker.config;
 
+import com.personal.stocktracker.document.Broker;
 import com.personal.stocktracker.document.Dividend;
 import com.personal.stocktracker.document.PdfUploadRecord;
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.document.User;
+import com.personal.stocktracker.repository.BrokerRepository;
 import com.personal.stocktracker.repository.DividendRepository;
 import com.personal.stocktracker.repository.PdfUploadRecordRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
@@ -11,11 +13,13 @@ import com.personal.stocktracker.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -27,10 +31,13 @@ public class DataSeeder implements CommandLineRunner {
     private final TransactionRepository transactionRepository;
     private final DividendRepository dividendRepository;
     private final PdfUploadRecordRepository pdfUploadRecordRepository;
+    private final BrokerRepository brokerRepository;
+    private final MongoTemplate mongoTemplate;
 
     @Override
     public void run(String... args) {
         seedUsers();
+        seedBrokers();
         migrateExistingData();
     }
 
@@ -66,6 +73,18 @@ public class DataSeeder implements CommandLineRunner {
         }
     }
 
+    private void seedBrokers() {
+        for (String name : List.of("Softlogic", "Almas")) {
+            if (!brokerRepository.existsByName(name)) {
+                brokerRepository.save(Broker.builder()
+                        .name(name)
+                        .createdAt(LocalDateTime.now())
+                        .build());
+                log.info("Created broker: {}", name);
+            }
+        }
+    }
+
     private void migrateExistingData() {
         // Assign all existing transactions without userId to imwageesha
         List<Transaction> unownedTx = transactionRepository.findAll().stream()
@@ -95,6 +114,28 @@ public class DataSeeder implements CommandLineRunner {
             unownedPdf.forEach(p -> p.setUserId("imwageesha"));
             pdfUploadRecordRepository.saveAll(unownedPdf);
             log.info("Migrated {} PDF uploads to user imwageesha", unownedPdf.size());
+        }
+
+        // Assign Softlogic broker to existing PDF uploads without brokerId
+        Optional<Broker> softlogic = brokerRepository.findAllByOrderByNameAsc().stream()
+                .filter(b -> "Softlogic".equals(b.getName()))
+                .findFirst();
+        if (softlogic.isPresent()) {
+            List<PdfUploadRecord> noBroker = pdfUploadRecordRepository.findAll().stream()
+                    .filter(p -> p.getBrokerId() == null)
+                    .toList();
+            if (!noBroker.isEmpty()) {
+                // Drop old unique index on tradeDate before saving
+                try {
+                    mongoTemplate.getCollection("pdf_uploads").dropIndex("tradeDate_1");
+                    log.info("Dropped old tradeDate_1 unique index");
+                } catch (Exception e) {
+                    // Index may not exist, ignore
+                }
+                noBroker.forEach(p -> p.setBrokerId(softlogic.get().getId()));
+                pdfUploadRecordRepository.saveAll(noBroker);
+                log.info("Migrated {} PDF uploads to broker Softlogic", noBroker.size());
+            }
         }
     }
 }

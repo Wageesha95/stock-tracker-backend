@@ -13,5 +13,6 @@ public interface PdfUploadRecordRepository extends MongoRepository<PdfUploadReco
     List<PdfUploadRecord> findAllByOrderByUploadedAtDesc();
 
     boolean existsByUserIdAndTradeDate(String userId, LocalDate tradeDate);
+    boolean existsByUserIdAndTradeDateAndBrokerId(String userId, LocalDate tradeDate, String brokerId);
     List<PdfUploadRecord> findByUserIdOrderByUploadedAtDesc(String userId);
 }

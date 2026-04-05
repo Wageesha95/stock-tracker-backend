@@ -4,6 +4,7 @@ import com.personal.stocktracker.document.PdfUploadRecord;
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.dto.CompanyRequest;
 import com.personal.stocktracker.dto.TransactionRequest;
+import com.personal.stocktracker.repository.BrokerRepository;
 import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.PdfUploadRecordRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
@@ -24,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -41,6 +43,7 @@ public class PdfUploadController {
     private final CompanyRepository companyRepository;
     private final PdfUploadRecordRepository pdfUploadRecordRepository;
     private final TransactionRepository transactionRepository;
+    private final BrokerRepository brokerRepository;
 
     // DD_MM_YYYY format
     private static final Pattern FILENAME_DATE_NUMERIC = Pattern.compile("(\\d{2})_(\\d{2})_(\\d{4})");
@@ -79,20 +82,19 @@ public class PdfUploadController {
     @PostMapping(value = "/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> previewTradeConfirmation(@RequestParam("file") MultipartFile file) {
         String filename = file.getOriginalFilename();
-        LocalDate tradeDate = extractDateFromFilename(filename);
-
-        String username = currentUsername();
-        if (tradeDate != null && pdfUploadRecordRepository.existsByUserIdAndTradeDate(username, tradeDate)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", "A trade confirmation for " + tradeDate + " has already been uploaded"));
-        }
+        LocalDate suggestedDate = extractDateFromFilename(filename);
 
         List<ParsedTransaction> parsed = pdfParserService.parseTradeConfirmation(file);
 
-        List<Map<String, Object>> preview = new ArrayList<>();
+        // If no date from filename, try to get from parsed transactions
+        if (suggestedDate == null && !parsed.isEmpty()) {
+            suggestedDate = parsed.get(0).transaction().getDate();
+        }
+
+        List<Map<String, Object>> transactions = new ArrayList<>();
         for (ParsedTransaction pt : parsed) {
             Transaction tx = pt.transaction();
-            preview.add(Map.of(
+            transactions.add(Map.of(
                     "companyCode", tx.getCompanyCode(),
                     "companyName", pt.companyName(),
                     "date", tx.getDate().toString(),
@@ -103,20 +105,34 @@ public class PdfUploadController {
             ));
         }
 
-        return ResponseEntity.ok(preview);
+        Map<String, Object> response = new HashMap<>();
+        response.put("transactions", transactions);
+        response.put("suggestedDate", suggestedDate != null ? suggestedDate.toString() : null);
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadTradeConfirmation(@RequestParam("file") MultipartFile file) {
-        String filename = file.getOriginalFilename();
-        LocalDate tradeDate = extractDateFromFilename(filename);
+    public ResponseEntity<?> uploadTradeConfirmation(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("tradeDate") String tradeDateStr,
+            @RequestParam("brokerId") String brokerId) {
+
+        LocalDate tradeDate = LocalDate.parse(tradeDateStr);
         String username = currentUsername();
 
-        if (tradeDate != null && pdfUploadRecordRepository.existsByUserIdAndTradeDate(username, tradeDate)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", "A trade confirmation for " + tradeDate + " has already been uploaded"));
+        // Validate broker exists
+        if (!brokerRepository.existsById(brokerId)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid broker"));
         }
 
+        // Check uniqueness: tradeDate + broker combination per user
+        if (pdfUploadRecordRepository.existsByUserIdAndTradeDateAndBrokerId(username, tradeDate, brokerId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "A trade confirmation for this date and broker has already been uploaded"));
+        }
+
+        String filename = file.getOriginalFilename();
         List<ParsedTransaction> parsed = pdfParserService.parseTradeConfirmation(file);
 
         List<Transaction> savedTransactions = new ArrayList<>();
@@ -134,7 +150,7 @@ public class PdfUploadController {
 
             TransactionRequest txRequest = new TransactionRequest();
             txRequest.setCompanyCode(code);
-            txRequest.setDate(pt.transaction().getDate());
+            txRequest.setDate(tradeDate);
             txRequest.setType(pt.transaction().getType());
             txRequest.setCount(pt.transaction().getCount());
             txRequest.setPrice(pt.transaction().getPrice());
@@ -150,6 +166,7 @@ public class PdfUploadController {
                 .userId(username)
                 .filename(filename)
                 .tradeDate(tradeDate)
+                .brokerId(brokerId)
                 .transactionIds(transactionIds)
                 .transactionCount(transactionIds.size())
                 .uploadedAt(LocalDateTime.now())
