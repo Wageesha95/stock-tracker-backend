@@ -3,6 +3,7 @@ package com.personal.stocktracker.controller;
 import com.personal.stocktracker.document.Company;
 import com.personal.stocktracker.document.IndustryGroup;
 import com.personal.stocktracker.document.MarketData;
+import com.personal.stocktracker.document.ShareSplit;
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.document.TransactionType;
 import com.personal.stocktracker.dto.PortfolioItem;
@@ -10,6 +11,7 @@ import com.personal.stocktracker.dto.RealizedGainItem;
 import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.IndustryGroupRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
+import com.personal.stocktracker.repository.ShareSplitRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -34,12 +36,39 @@ public class DashboardController {
     private final MarketDataRepository marketDataRepository;
     private final CompanyRepository companyRepository;
     private final IndustryGroupRepository industryGroupRepository;
+    private final ShareSplitRepository shareSplitRepository;
+
+    /**
+     * Apply split adjustments to a transaction's count and price.
+     * For each split that happened AFTER this transaction, multiply count by ratio and divide price.
+     */
+    private int adjustCount(int count, BigDecimal price, String companyCode, java.time.LocalDate txDate, List<ShareSplit> splits) {
+        int adjusted = count;
+        for (ShareSplit s : splits) {
+            if (s.getCompanyCode().equals(companyCode) && s.getDate().isAfter(txDate)) {
+                adjusted = (int) Math.round((double) adjusted * s.getToShares() / s.getFromShares());
+            }
+        }
+        return adjusted;
+    }
+
+    private BigDecimal adjustPrice(BigDecimal price, String companyCode, java.time.LocalDate txDate, List<ShareSplit> splits) {
+        BigDecimal adjusted = price;
+        for (ShareSplit s : splits) {
+            if (s.getCompanyCode().equals(companyCode) && s.getDate().isAfter(txDate)) {
+                adjusted = adjusted.multiply(BigDecimal.valueOf(s.getFromShares()))
+                        .divide(BigDecimal.valueOf(s.getToShares()), 4, RoundingMode.HALF_UP);
+            }
+        }
+        return adjusted;
+    }
 
     @GetMapping("/all")
     public ResponseEntity<Map<String, Object>> getAll() {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         // Single DB query for all data
         List<Transaction> allTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
+        List<ShareSplit> allSplits = shareSplitRepository.findByUserIdOrderByDateDesc(username);
         // Get latest market data per company (pick most recent tradeDate)
         Map<String, MarketData> marketDataMap = marketDataRepository.findAll().stream()
                 .collect(Collectors.toMap(
@@ -70,18 +99,21 @@ public class DashboardController {
             BigDecimal realizedGain = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
+                int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
+                BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
+
                 if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
-                    sharesHeld += tx.getCount();
-                    costBasis = costBasis.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
+                    sharesHeld += adjCount;
+                    costBasis = costBasis.add(adjPrice.multiply(BigDecimal.valueOf(adjCount)).add(tx.getCommission()));
                 } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avgAtSell = sharesHeld > 0
                             ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
                             : BigDecimal.ZERO;
-                    BigDecimal costRemoved = avgAtSell.multiply(BigDecimal.valueOf(tx.getCount()));
-                    BigDecimal sellRevenue = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
+                    BigDecimal costRemoved = avgAtSell.multiply(BigDecimal.valueOf(adjCount));
+                    BigDecimal sellRevenue = adjPrice.multiply(BigDecimal.valueOf(adjCount)).subtract(tx.getCommission());
                     realizedGain = realizedGain.add(sellRevenue.subtract(costRemoved));
                     costBasis = costBasis.subtract(costRemoved);
-                    sharesHeld -= tx.getCount();
+                    sharesHeld -= adjCount;
                 }
             }
 
