@@ -26,6 +26,8 @@ public class AuthController {
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
+    private static final int MAX_FAILED_ATTEMPTS = 3;
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
         String username = body.get("username");
@@ -36,20 +38,45 @@ public class AuthController {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
         }
 
+        if (user.isLocked()) {
+            return ResponseEntity.status(423).body(Map.of("error", "Account is locked. Contact an admin to unlock."));
+        }
+
         boolean readMode = false;
+        boolean authenticated = false;
 
         // Check read password first
         if (user.getReadPassword() != null && passwordEncoder.matches(password, user.getReadPassword())) {
             readMode = true;
+            authenticated = true;
         } else {
             // Try normal password via AuthenticationManager
             try {
                 authenticationManager.authenticate(
                         new UsernamePasswordAuthenticationToken(username, password)
                 );
+                authenticated = true;
             } catch (Exception e) {
-                return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
+                // Authentication failed
             }
+        }
+
+        if (!authenticated) {
+            user.setFailedAttempts(user.getFailedAttempts() + 1);
+            if (user.getFailedAttempts() >= MAX_FAILED_ATTEMPTS) {
+                user.setLocked(true);
+                userRepository.save(user);
+                return ResponseEntity.status(423).body(Map.of("error", "Account is locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. Contact an admin to unlock."));
+            }
+            userRepository.save(user);
+            int remaining = MAX_FAILED_ATTEMPTS - user.getFailedAttempts();
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials. " + remaining + " attempt(s) remaining."));
+        }
+
+        // Reset failed attempts on successful login
+        if (user.getFailedAttempts() > 0) {
+            user.setFailedAttempts(0);
+            userRepository.save(user);
         }
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), readMode);

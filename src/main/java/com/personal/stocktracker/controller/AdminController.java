@@ -40,6 +40,7 @@ public class AdminController {
             stat.put("username", user.getUsername());
             stat.put("role", user.getRole());
             stat.put("transactionCount", txCountByUser.getOrDefault(user.getUsername(), 0L));
+            stat.put("locked", user.isLocked());
             stat.put("createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
             userStats.add(stat);
         }
@@ -109,6 +110,16 @@ public class AdminController {
         return ResponseEntity.ok(Map.of(
                 "id", user.getId(), "username", user.getUsername(), "role", user.getRole()
         ));
+    }
+
+    @PutMapping("/users/{id}/unlock")
+    public ResponseEntity<?> unlockUser(@PathVariable String id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        user.setLocked(false);
+        user.setFailedAttempts(0);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "User " + user.getUsername() + " unlocked"));
     }
 
     @DeleteMapping("/users/{id}")

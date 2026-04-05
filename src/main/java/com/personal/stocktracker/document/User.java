@@ -29,5 +29,9 @@ public class User {
 
     private String role;
 
+    private int failedAttempts;
+
+    private boolean locked;
+
     private LocalDateTime createdAt;
 }
