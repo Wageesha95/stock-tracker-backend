@@ -70,7 +70,7 @@ public class DashboardController {
             BigDecimal realizedGain = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
-                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
+                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
                     sharesHeld += tx.getCount();
                     costBasis = costBasis.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
                 } else if (tx.getType() == TransactionType.SELL) {
@@ -130,7 +130,7 @@ public class DashboardController {
             BigDecimal buyCost = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
-                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
+                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
                     buyShares += tx.getCount();
                     buyCost = buyCost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
                 } else if (tx.getType() == TransactionType.SELL) {
@@ -187,7 +187,7 @@ public class DashboardController {
             BigDecimal cb = companyCostBasis.getOrDefault(code, BigDecimal.ZERO);
             int shares = companyShares.getOrDefault(code, 0);
 
-            if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND) {
+            if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
                 BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission());
                 cb = cb.add(amount);
                 shares += tx.getCount();

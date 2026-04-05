@@ -4,5 +4,6 @@ public enum TransactionType {
     BUY,
     SELL,
     RIGHTS,
-    SCRIP_DIVIDEND
+    SCRIP_DIVIDEND,
+    IPO
 }
