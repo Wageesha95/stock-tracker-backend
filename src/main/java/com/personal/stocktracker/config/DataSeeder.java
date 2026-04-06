@@ -94,7 +94,7 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     private void seedBrokers() {
-        for (String name : List.of("Softlogic", "Almas")) {
+        for (String name : List.of("Softlogic", "Almas", "CAL")) {
             if (!brokerRepository.existsByName(name)) {
                 brokerRepository.save(Broker.builder()
                         .name(name)
