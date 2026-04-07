@@ -7,8 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/settings")
@@ -34,6 +33,14 @@ public class UserSettingsController {
         UserSettings settings = userSettingsRepository.findByUserId(currentUsername())
                 .orElse(UserSettings.builder().userId(currentUsername()).build());
         settings.setSelectedBrokerIds(brokerIds);
+        return ResponseEntity.ok(userSettingsRepository.save(settings));
+    }
+
+    @PutMapping("/table-columns")
+    public ResponseEntity<UserSettings> updateTableColumns(@RequestBody Map<String, List<String>> body) {
+        UserSettings settings = userSettingsRepository.findByUserId(currentUsername())
+                .orElse(UserSettings.builder().userId(currentUsername()).build());
+        settings.setTableColumns(body);
         return ResponseEntity.ok(userSettingsRepository.save(settings));
     }
 }
