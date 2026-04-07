@@ -38,6 +38,7 @@ public class DataSeeder implements CommandLineRunner {
     @Override
     public void run(String... args) {
         seedUsers();
+        unlockAdmins();
         seedBrokers();
         migrateExistingData();
     }
@@ -91,6 +92,17 @@ public class DataSeeder implements CommandLineRunner {
                 }
             });
         }
+    }
+
+    private void unlockAdmins() {
+        userRepository.findAll().stream()
+                .filter(u -> "ADMIN".equals(u.getRole()) && u.isLocked())
+                .forEach(u -> {
+                    u.setLocked(false);
+                    u.setFailedAttempts(0);
+                    userRepository.save(u);
+                    log.info("Auto-unlocked admin: {}", u.getUsername());
+                });
     }
 
     private void seedBrokers() {
