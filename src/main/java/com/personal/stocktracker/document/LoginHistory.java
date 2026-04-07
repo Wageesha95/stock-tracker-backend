@@ -27,6 +27,8 @@ public class LoginHistory {
 
     private String ipAddress;
 
+    private String location;
+
     private boolean readMode;
 
     private LocalDateTime timestamp;

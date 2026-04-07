@@ -6,6 +6,7 @@ import com.personal.stocktracker.document.User;
 import com.personal.stocktracker.dto.AuthResponse;
 import com.personal.stocktracker.repository.LoginHistoryRepository;
 import com.personal.stocktracker.repository.UserRepository;
+import com.personal.stocktracker.service.GeoIpService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
     private final LoginHistoryRepository loginHistoryRepository;
+    private final GeoIpService geoIpService;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
@@ -94,6 +96,7 @@ public class AuthController {
                 .action("LOGIN")
                 .device(userAgent != null ? userAgent : "Unknown")
                 .ipAddress(ip)
+                .location(geoIpService.lookup(ip))
                 .readMode(readMode)
                 .timestamp(LocalDateTime.now())
                 .build());
@@ -139,6 +142,7 @@ public class AuthController {
                     .action("LOGOUT")
                     .device(userAgent != null ? userAgent : "Unknown")
                     .ipAddress(ip)
+                    .location(geoIpService.lookup(ip))
                     .timestamp(LocalDateTime.now())
                     .build());
         }

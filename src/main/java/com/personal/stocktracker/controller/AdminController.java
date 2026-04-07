@@ -124,8 +124,8 @@ public class AdminController {
 
     @GetMapping("/login-history")
     public ResponseEntity<List<LoginHistory>> getLoginHistory() {
-        // Auto-delete records older than 1 month
-        loginHistoryRepository.deleteByTimestampBefore(LocalDateTime.now().minusMonths(1));
+        // Auto-delete records older than 10 days
+        loginHistoryRepository.deleteByTimestampBefore(LocalDateTime.now().minusDays(10));
         return ResponseEntity.ok(loginHistoryRepository.findAllByOrderByTimestampDesc());
     }
 
