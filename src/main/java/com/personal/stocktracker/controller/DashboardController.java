@@ -121,7 +121,7 @@ public class DashboardController {
             BigDecimal avgBuyPrice = sharesHeld > 0
                     ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-            realizedGain = realizedGain.setScale(2, RoundingMode.HALF_UP);
+            realizedGain = realizedGain.setScale(4, RoundingMode.HALF_UP);
 
             MarketData md = marketDataMap.get(code);
             BigDecimal lastTrade = md != null ? md.getLastTrade() : BigDecimal.ZERO;
@@ -134,9 +134,9 @@ public class DashboardController {
             BigDecimal totalInvested = sharesHeldBd.multiply(avgBuyPrice);
             BigDecimal unrealizedGain = currentValue.subtract(totalInvested);
             BigDecimal unrealizedGainPercent = totalInvested.compareTo(BigDecimal.ZERO) != 0
-                    ? unrealizedGain.divide(totalInvested, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                    ? unrealizedGain.divide(totalInvested, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-            BigDecimal unrealizedDayGain = currentValue.multiply(changePercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal unrealizedDayGain = currentValue.multiply(changePercent).divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
 
             portfolio.add(PortfolioItem.builder()
                     .companyCode(code).companyName(companyName)
@@ -169,9 +169,9 @@ public class DashboardController {
                     BigDecimal avg = buyShares > 0 ? buyCost.divide(BigDecimal.valueOf(buyShares), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
                     BigDecimal sellRev = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
                     BigDecimal costBasis = avg.multiply(BigDecimal.valueOf(tx.getCount()));
-                    BigDecimal gain = sellRev.subtract(costBasis).setScale(2, RoundingMode.HALF_UP);
+                    BigDecimal gain = sellRev.subtract(costBasis).setScale(4, RoundingMode.HALF_UP);
                     BigDecimal gainPct = costBasis.compareTo(BigDecimal.ZERO) != 0
-                            ? gain.divide(costBasis, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                            ? gain.divide(costBasis, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
                             : BigDecimal.ZERO;
 
                     realizedItems.add(RealizedGainItem.builder()
@@ -272,7 +272,7 @@ public class DashboardController {
             item.put("companyCode", code);
             item.put("companyName", comp != null ? comp.getName() : code);
             item.put("date", firstDate.toString());
-            item.put("amount", currentCost.setScale(2, RoundingMode.HALF_UP));
+            item.put("amount", currentCost.setScale(4, RoundingMode.HALF_UP));
             item.put("days", days);
             item.put("interest", interest);
             breakdown.add(item);
@@ -318,13 +318,13 @@ public class DashboardController {
             BigDecimal sectorInvested = e.getValue().stream()
                     .map(c -> (BigDecimal) c.get("totalInvested"))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            s.put("currentValue", sectorValue.setScale(2, RoundingMode.HALF_UP));
-            s.put("totalInvested", sectorInvested.setScale(2, RoundingMode.HALF_UP));
-            s.put("unrealizedGain", sectorValue.subtract(sectorInvested).setScale(2, RoundingMode.HALF_UP));
+            s.put("currentValue", sectorValue.setScale(4, RoundingMode.HALF_UP));
+            s.put("totalInvested", sectorInvested.setScale(4, RoundingMode.HALF_UP));
+            s.put("unrealizedGain", sectorValue.subtract(sectorInvested).setScale(4, RoundingMode.HALF_UP));
             BigDecimal sectorDayGain = e.getValue().stream()
                     .map(c -> (BigDecimal) c.get("unrealizedDayGain"))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            s.put("unrealizedDayGain", sectorDayGain.setScale(2, RoundingMode.HALF_UP));
+            s.put("unrealizedDayGain", sectorDayGain.setScale(4, RoundingMode.HALF_UP));
             s.put("companyCount", e.getValue().size());
             sectors.add(s);
         }
@@ -334,7 +334,7 @@ public class DashboardController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("portfolio", portfolio);
         result.put("realizedItems", realizedItems);
-        result.put("opportunityCost", totalInterest.setScale(2, RoundingMode.HALF_UP));
+        result.put("opportunityCost", totalInterest.setScale(4, RoundingMode.HALF_UP));
         result.put("interestBreakdown", breakdown);
         result.put("bankInterestRate", 6.5);
         result.put("sectors", sectors);
