@@ -1,6 +1,8 @@
 package com.personal.stocktracker.controller;
 
+import com.personal.stocktracker.document.LoginHistory;
 import com.personal.stocktracker.document.User;
+import com.personal.stocktracker.repository.LoginHistoryRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
 import com.personal.stocktracker.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -10,10 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -23,6 +22,7 @@ public class AdminController {
 
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
+    private final LoginHistoryRepository loginHistoryRepository;
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping("/stats")
@@ -120,6 +120,13 @@ public class AdminController {
         user.setFailedAttempts(0);
         userRepository.save(user);
         return ResponseEntity.ok(Map.of("message", "User " + user.getUsername() + " unlocked"));
+    }
+
+    @GetMapping("/login-history")
+    public ResponseEntity<List<LoginHistory>> getLoginHistory() {
+        // Auto-delete records older than 1 month
+        loginHistoryRepository.deleteByTimestampBefore(LocalDateTime.now().minusMonths(1));
+        return ResponseEntity.ok(loginHistoryRepository.findAllByOrderByTimestampDesc());
     }
 
     @DeleteMapping("/users/{id}")
