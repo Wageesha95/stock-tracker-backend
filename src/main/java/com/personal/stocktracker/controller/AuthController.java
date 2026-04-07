@@ -69,6 +69,19 @@ public class AuthController {
         }
 
         if (!authenticated) {
+            // Record failed login
+            String ua = request.getHeader("User-Agent");
+            String failIp = request.getHeader("X-Forwarded-For");
+            if (failIp == null || failIp.isBlank()) failIp = request.getRemoteAddr();
+            loginHistoryRepository.save(LoginHistory.builder()
+                    .username(user.getUsername())
+                    .action("FAILED_LOGIN")
+                    .device(ua != null ? ua : "Unknown")
+                    .ipAddress(failIp)
+                    .location(geoIpService.lookup(failIp))
+                    .timestamp(LocalDateTime.now())
+                    .build());
+
             user.setFailedAttempts(user.getFailedAttempts() + 1);
             if (user.getFailedAttempts() >= MAX_FAILED_ATTEMPTS) {
                 user.setLocked(true);
