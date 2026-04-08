@@ -2,6 +2,9 @@ server:
   port: ${PORT:8080}
 
 spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb+srv://admin0:admin0@stocktracker.emba47y.mongodb.net/stock-tracker?retryWrites=true&authSource=admin&connectTimeoutMS=30000&socketTimeoutMS=60000&serverSelectionTimeoutMS=30000}

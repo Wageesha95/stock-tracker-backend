@@ -1,10 +1,7 @@
 package com.personal.stocktracker.controller;
 
-import com.personal.stocktracker.document.LoginHistory;
-import com.personal.stocktracker.document.User;
-import com.personal.stocktracker.repository.LoginHistoryRepository;
-import com.personal.stocktracker.repository.TransactionRepository;
-import com.personal.stocktracker.repository.UserRepository;
+import com.personal.stocktracker.document.*;
+import com.personal.stocktracker.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +20,9 @@ public class AdminController {
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
     private final LoginHistoryRepository loginHistoryRepository;
+    private final CompanyRepository companyRepository;
+    private final IndustryGroupRepository industryGroupRepository;
+    private final MarketDataRepository marketDataRepository;
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping("/stats")
@@ -48,6 +48,112 @@ public class AdminController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalUsers", users.size());
         result.put("users", userStats);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/sector-distribution")
+    public ResponseEntity<List<Map<String, Object>>> getSectorDistribution() {
+        Map<String, Company> companyMap = companyRepository.findAll().stream()
+                .collect(Collectors.toMap(Company::getCode, c -> c, (a, b) -> a));
+        Map<String, IndustryGroup> groupMap = industryGroupRepository.findAll().stream()
+                .collect(Collectors.toMap(IndustryGroup::getId, g -> g, (a, b) -> a));
+        Map<String, MarketData> marketDataMap = marketDataRepository.findAll().stream()
+                .collect(Collectors.toMap(MarketData::getCompanyCode, m -> m,
+                        (a, b) -> a.getTradeDate() != null && b.getTradeDate() != null
+                                && a.getTradeDate().isAfter(b.getTradeDate()) ? a : b));
+
+        List<Transaction> allTx = transactionRepository.findAll();
+        // Group by user
+        Map<String, List<Transaction>> txByUser = allTx.stream()
+                .filter(t -> t.getUserId() != null)
+                .collect(Collectors.groupingBy(Transaction::getUserId));
+
+        // For each user, compute shares held per company, then value per sector
+        // Result: sector -> { sector, user1: value, user2: value, ... }
+        Set<String> allUsers = new TreeSet<>();
+        // sector -> user -> value
+        Map<String, Map<String, java.math.BigDecimal>> sectorUserValue = new LinkedHashMap<>();
+        // sector -> user -> list of {code, value}
+        Map<String, Map<String, List<Map.Entry<String, java.math.BigDecimal>>>> sectorUserCompanies = new LinkedHashMap<>();
+
+        for (var entry : txByUser.entrySet()) {
+            String userId = entry.getKey();
+            allUsers.add(userId);
+
+            Map<String, Integer> sharesHeld = new LinkedHashMap<>();
+            Map<String, List<Transaction>> byCompany = entry.getValue().stream()
+                    .collect(Collectors.groupingBy(Transaction::getCompanyCode));
+
+            for (var ce : byCompany.entrySet()) {
+                String code = ce.getKey();
+                List<Transaction> txns = new ArrayList<>(ce.getValue());
+                txns.sort(Comparator.comparing(Transaction::getDate));
+                int shares = 0;
+                for (Transaction tx : txns) {
+                    if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS
+                            || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
+                        shares += tx.getCount();
+                    } else if (tx.getType() == TransactionType.SELL) {
+                        shares -= tx.getCount();
+                    }
+                }
+                if (shares > 0) sharesHeld.put(code, shares);
+            }
+
+            for (var sh : sharesHeld.entrySet()) {
+                String code = sh.getKey();
+                int shares = sh.getValue();
+                MarketData md = marketDataMap.get(code);
+                java.math.BigDecimal price = md != null ? md.getLastTrade() : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal value = price.multiply(java.math.BigDecimal.valueOf(shares));
+
+                Company comp = companyMap.get(code);
+                String sectorName = "Uncategorized";
+                if (comp != null && comp.getIndustryGroupId() != null) {
+                    IndustryGroup grp = groupMap.get(comp.getIndustryGroupId());
+                    if (grp != null) sectorName = grp.getName();
+                }
+
+                sectorUserValue.computeIfAbsent(sectorName, k -> new LinkedHashMap<>())
+                        .merge(userId, value, java.math.BigDecimal::add);
+                sectorUserCompanies.computeIfAbsent(sectorName, k -> new LinkedHashMap<>())
+                        .computeIfAbsent(userId, k -> new ArrayList<>())
+                        .add(Map.entry(code, value));
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var entry : sectorUserValue.entrySet()) {
+            String sector = entry.getKey();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("sector", sector);
+            for (String user : allUsers) {
+                java.math.BigDecimal val = entry.getValue().getOrDefault(user, java.math.BigDecimal.ZERO);
+                row.put(user, val.setScale(2, java.math.RoundingMode.HALF_UP));
+
+                // Top 3 companies by value for this user in this sector
+                var companies = sectorUserCompanies.getOrDefault(sector, Map.of()).getOrDefault(user, List.of());
+                List<String> top3 = companies.stream()
+                        .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                        .limit(3)
+                        .map(e -> {
+                            java.math.BigDecimal pct = val.compareTo(java.math.BigDecimal.ZERO) != 0
+                                    ? e.getValue().multiply(java.math.BigDecimal.valueOf(100))
+                                        .divide(val, 1, java.math.RoundingMode.HALF_UP)
+                                    : java.math.BigDecimal.ZERO;
+                            return e.getKey() + " " + pct + "%";
+                        })
+                        .collect(Collectors.toList());
+                row.put(user + "_top3", top3);
+            }
+            result.add(row);
+        }
+        result.sort((a, b) -> {
+            double aTotal = allUsers.stream().mapToDouble(u -> ((Number) a.getOrDefault(u, 0)).doubleValue()).sum();
+            double bTotal = allUsers.stream().mapToDouble(u -> ((Number) b.getOrDefault(u, 0)).doubleValue()).sum();
+            return Double.compare(bTotal, aTotal);
+        });
+
         return ResponseEntity.ok(result);
     }
 

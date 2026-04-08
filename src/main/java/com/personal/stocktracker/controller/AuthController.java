@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -69,18 +70,18 @@ public class AuthController {
         }
 
         if (!authenticated) {
-            // Record failed login
+            // Record failed login (async)
             String ua = request.getHeader("User-Agent");
             String failIp = request.getHeader("X-Forwarded-For");
             if (failIp == null || failIp.isBlank()) failIp = request.getRemoteAddr();
-            loginHistoryRepository.save(LoginHistory.builder()
-                    .username(user.getUsername())
-                    .action("FAILED_LOGIN")
-                    .device(ua != null ? ua : "Unknown")
-                    .ipAddress(failIp)
-                    .location(geoIpService.lookup(failIp))
-                    .timestamp(LocalDateTime.now())
-                    .build());
+            final String fIp = failIp;
+            final String fUa = ua;
+            final String fUser = user.getUsername();
+            CompletableFuture.runAsync(() -> loginHistoryRepository.save(LoginHistory.builder()
+                    .username(fUser).action("FAILED_LOGIN")
+                    .device(fUa != null ? fUa : "Unknown").ipAddress(fIp)
+                    .location(geoIpService.lookup(fIp)).timestamp(LocalDateTime.now())
+                    .build()));
 
             user.setFailedAttempts(user.getFailedAttempts() + 1);
             if (user.getFailedAttempts() >= MAX_FAILED_ATTEMPTS) {
@@ -99,20 +100,20 @@ public class AuthController {
             userRepository.save(user);
         }
 
-        // Record login
+        // Record login (async)
         String userAgent = request.getHeader("User-Agent");
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isBlank()) ip = request.getRemoteAddr();
-
-        loginHistoryRepository.save(LoginHistory.builder()
-                .username(user.getUsername())
-                .action("LOGIN")
-                .device(userAgent != null ? userAgent : "Unknown")
-                .ipAddress(ip)
-                .location(geoIpService.lookup(ip))
-                .readMode(readMode)
+        final String loginIp = ip;
+        final String loginUa = userAgent;
+        final String loginUser = user.getUsername();
+        final boolean loginReadMode = readMode;
+        CompletableFuture.runAsync(() -> loginHistoryRepository.save(LoginHistory.builder()
+                .username(loginUser).action("LOGIN")
+                .device(loginUa != null ? loginUa : "Unknown").ipAddress(loginIp)
+                .location(geoIpService.lookup(loginIp)).readMode(loginReadMode)
                 .timestamp(LocalDateTime.now())
-                .build());
+                .build()));
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), readMode);
 
@@ -149,15 +150,17 @@ public class AuthController {
             String userAgent = request.getHeader("User-Agent");
             String ip = request.getHeader("X-Forwarded-For");
             if (ip == null || ip.isBlank()) ip = request.getRemoteAddr();
-
-            loginHistoryRepository.save(LoginHistory.builder()
-                    .username(auth.getName())
+            final String logoutIp = ip;
+            final String logoutUa = userAgent;
+            final String logoutUser = auth.getName();
+            CompletableFuture.runAsync(() -> loginHistoryRepository.save(LoginHistory.builder()
+                    .username(logoutUser)
                     .action("LOGOUT")
-                    .device(userAgent != null ? userAgent : "Unknown")
-                    .ipAddress(ip)
-                    .location(geoIpService.lookup(ip))
+                    .device(logoutUa != null ? logoutUa : "Unknown")
+                    .ipAddress(logoutIp)
+                    .location(geoIpService.lookup(logoutIp))
                     .timestamp(LocalDateTime.now())
-                    .build());
+                    .build()));
         }
         return ResponseEntity.ok(Map.of("message", "Logged out"));
     }

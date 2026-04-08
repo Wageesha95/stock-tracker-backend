@@ -9,9 +9,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/market-data")
@@ -20,6 +24,7 @@ public class MarketDataController {
 
     private final MarketDataService marketDataService;
     private final MarketDataRepository marketDataRepository;
+    private final MongoTemplate mongoTemplate;
 
     @PostMapping(value = "/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<List<Map<String, Object>>> previewCsv(@RequestParam("file") MultipartFile file) {
@@ -48,5 +53,21 @@ public class MarketDataController {
     @GetMapping("/{code}/history")
     public ResponseEntity<List<MarketData>> getHistory(@PathVariable String code) {
         return ResponseEntity.ok(marketDataRepository.findByCompanyCodeOrderByTradeDateDesc(code));
+    }
+
+    @GetMapping("/dates")
+    public ResponseEntity<List<String>> getAvailableDates() {
+        // Get dates from actual MarketData documents to ensure consistency
+        List<String> dates = marketDataRepository.findAll().stream()
+                .map(md -> md.getTradeDate().toString())
+                .distinct()
+                .sorted(java.util.Comparator.reverseOrder())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dates);
+    }
+
+    @GetMapping("/by-date/{date}")
+    public ResponseEntity<List<MarketData>> getByDate(@PathVariable LocalDate date) {
+        return ResponseEntity.ok(marketDataRepository.findByTradeDate(date));
     }
 }

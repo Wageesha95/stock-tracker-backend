@@ -16,4 +16,6 @@ public interface MarketDataRepository extends MongoRepository<MarketData, String
     Optional<MarketData> findByCompanyCodeAndTradeDate(String companyCode, LocalDate tradeDate);
 
     List<MarketData> findByCompanyCodeOrderByTradeDateDesc(String companyCode);
+
+    List<MarketData> findByTradeDate(LocalDate tradeDate);
 }
