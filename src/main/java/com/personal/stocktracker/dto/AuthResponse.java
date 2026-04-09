@@ -14,4 +14,5 @@ public class AuthResponse {
     private String id;
     private String username;
     private String role;
+    private boolean dividendPayoutsEnabled;
 }

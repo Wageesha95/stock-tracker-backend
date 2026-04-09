@@ -33,5 +33,7 @@ public class User {
 
     private boolean locked;
 
+    private boolean dividendPayoutsEnabled;
+
     private LocalDateTime createdAt;
 }

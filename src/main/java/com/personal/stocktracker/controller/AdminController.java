@@ -41,6 +41,7 @@ public class AdminController {
             stat.put("role", user.getRole());
             stat.put("transactionCount", txCountByUser.getOrDefault(user.getUsername(), 0L));
             stat.put("locked", user.isLocked());
+            stat.put("dividendPayoutsEnabled", user.isDividendPayoutsEnabled());
             stat.put("createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
             userStats.add(stat);
         }
@@ -215,6 +216,18 @@ public class AdminController {
         userRepository.save(user);
         return ResponseEntity.ok(Map.of(
                 "id", user.getId(), "username", user.getUsername(), "role", user.getRole()
+        ));
+    }
+
+    @PutMapping("/users/{id}/dividend-payouts")
+    public ResponseEntity<?> toggleDividendPayouts(@PathVariable String id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        user.setDividendPayoutsEnabled(!user.isDividendPayoutsEnabled());
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of(
+                "username", user.getUsername(),
+                "dividendPayoutsEnabled", user.isDividendPayoutsEnabled()
         ));
     }
 
