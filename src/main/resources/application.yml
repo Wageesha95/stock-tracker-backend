@@ -15,3 +15,10 @@ app:
   jwt:
     secret: ${JWT_SECRET:stock-tracker-jwt-secret-key-change-in-production-2026}
     expiration: ${JWT_EXPIRATION:86400000}
+  scraper:
+    base-url: ${SCRAPER_BASE_URL:https://www.tradingview.com/symbols/CSELK-}
+    url-suffix: ${SCRAPER_URL_SUFFIX:0000/financials-dividends/}
+    delay-ms: ${SCRAPER_DELAY_MS:6000}
+    headless: ${SCRAPER_HEADLESS:true}
+    page-load-timeout-sec: ${SCRAPER_PAGE_LOAD_TIMEOUT:30}
+    element-wait-timeout-sec: ${SCRAPER_ELEMENT_WAIT_TIMEOUT:15}
