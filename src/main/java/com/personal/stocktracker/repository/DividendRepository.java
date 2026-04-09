@@ -16,4 +16,6 @@ public interface DividendRepository extends MongoRepository<Dividend, String> {
     List<Dividend> findByUserIdOrderByDateDesc(String userId);
 
     List<Dividend> findByUserIdAndCompanyCodeOrderByDateDesc(String userId, String companyCode);
+
+    boolean existsByUserIdAndCompanyCodeAndXdDate(String userId, String companyCode, java.time.LocalDate xdDate);
 }

@@ -31,6 +31,10 @@ public class DividendService {
     public Dividend createDividend(DividendRequest request, String userId) {
         String code = request.getCompanyCode().toUpperCase();
 
+        if (request.getXdDate() != null && dividendRepository.existsByUserIdAndCompanyCodeAndXdDate(userId, code, request.getXdDate())) {
+            throw new RuntimeException("Dividend already exists for " + code + " with XD date " + request.getXdDate());
+        }
+
         if (!companyRepository.existsByCode(code)) {
             companyRepository.save(Company.builder()
                     .code(code).name(code).createdAt(LocalDateTime.now()).build());
@@ -85,9 +89,12 @@ public class DividendService {
         return dividendRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode);
     }
 
-    public Dividend updateDividend(String id, DividendRequest request) {
+    public Dividend updateDividend(String id, DividendRequest request, String userId) {
         Dividend dividend = dividendRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Dividend not found with id: " + id));
+        if (!dividend.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
+        }
 
         dividend.setType(request.getType());
         dividend.setDate(request.getDate());
@@ -136,9 +143,12 @@ public class DividendService {
         return dividendRepository.save(dividend);
     }
 
-    public void deleteDividend(String id) {
+    public void deleteDividend(String id, String userId) {
         Dividend dividend = dividendRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Dividend not found with id: " + id));
+        if (!dividend.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
+        }
 
         // Delete linked transaction if exists
         if (dividend.getTransactionId() != null) {
