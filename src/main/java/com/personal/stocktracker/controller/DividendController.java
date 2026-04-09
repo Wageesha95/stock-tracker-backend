@@ -40,12 +40,12 @@ public class DividendController {
 
     @PutMapping("/{id}")
     public ResponseEntity<Dividend> updateDividend(@PathVariable String id, @Valid @RequestBody DividendRequest request) {
-        return ResponseEntity.ok(dividendService.updateDividend(id, request));
+        return ResponseEntity.ok(dividendService.updateDividend(id, request, currentUsername()));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteDividend(@PathVariable String id) {
-        dividendService.deleteDividend(id);
+        dividendService.deleteDividend(id, currentUsername());
         return ResponseEntity.noContent().build();
     }
 }

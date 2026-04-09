@@ -53,9 +53,11 @@ public class TransactionService {
         return transactionRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode);
     }
 
-    public void deleteTransaction(String id) {
-        if (!transactionRepository.existsById(id)) {
-            throw new RuntimeException("Transaction not found with id: " + id);
+    public void deleteTransaction(String id, String userId) {
+        Transaction transaction = transactionRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Transaction not found with id: " + id));
+        if (!transaction.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
         }
         transactionRepository.deleteById(id);
     }

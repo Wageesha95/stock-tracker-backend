@@ -90,8 +90,7 @@ public class AuthController {
                 return ResponseEntity.status(423).body(Map.of("error", "Account is locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. Contact an admin to unlock."));
             }
             userRepository.save(user);
-            int remaining = MAX_FAILED_ATTEMPTS - user.getFailedAttempts();
-            return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials. " + remaining + " attempt(s) remaining."));
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
         }
 
         // Reset failed attempts on successful login
@@ -122,6 +121,7 @@ public class AuthController {
         response.put("username", user.getUsername());
         response.put("role", user.getRole());
         response.put("readMode", readMode);
+        response.put("dividendPayoutsEnabled", user.isDividendPayoutsEnabled());
         response.put("token", token);
         return ResponseEntity.ok(response);
     }
@@ -140,6 +140,7 @@ public class AuthController {
                 .id(user.getId())
                 .username(user.getUsername())
                 .role(user.getRole())
+                .dividendPayoutsEnabled(user.isDividendPayoutsEnabled())
                 .build());
     }
 

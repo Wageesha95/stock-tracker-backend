@@ -126,18 +126,19 @@ class TransactionServiceTest {
 
     @Test
     void deleteTransaction_throwsWhenNotFound() {
-        when(transactionRepository.existsById("missing")).thenReturn(false);
+        when(transactionRepository.findById("missing")).thenReturn(java.util.Optional.empty());
 
-        assertThatThrownBy(() -> transactionService.deleteTransaction("missing"))
+        assertThatThrownBy(() -> transactionService.deleteTransaction("missing", "user1"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Transaction not found");
     }
 
     @Test
     void deleteTransaction_deletesWhenFound() {
-        when(transactionRepository.existsById("tx1")).thenReturn(true);
+        Transaction tx = Transaction.builder().id("tx1").userId("user1").build();
+        when(transactionRepository.findById("tx1")).thenReturn(java.util.Optional.of(tx));
 
-        transactionService.deleteTransaction("tx1");
+        transactionService.deleteTransaction("tx1", "user1");
 
         verify(transactionRepository).deleteById("tx1");
     }

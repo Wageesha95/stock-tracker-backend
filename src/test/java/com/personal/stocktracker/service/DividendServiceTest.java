@@ -115,9 +115,9 @@ class DividendServiceTest {
 
     @Test
     void deleteDividend_throwsWhenNotFound() {
-        when(dividendRepository.existsById("missing")).thenReturn(false);
+        when(dividendRepository.findById("missing")).thenReturn(java.util.Optional.empty());
 
-        assertThatThrownBy(() -> dividendService.deleteDividend("missing"))
+        assertThatThrownBy(() -> dividendService.deleteDividend("missing", "user1"))
                 .isInstanceOf(RuntimeException.class);
     }
 }
