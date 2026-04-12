@@ -50,6 +50,38 @@ public class MarketDataController {
         return ResponseEntity.ok(marketDataService.getAll());
     }
 
+    @GetMapping("/sparklines")
+    public ResponseEntity<Map<String, Object>> getSparklines(@RequestParam(defaultValue = "30") int days) {
+        java.util.Date cutoff = java.util.Date.from(
+                LocalDate.now().minusDays(days).atStartOfDay(TZ).toInstant()
+        );
+        org.springframework.data.mongodb.core.aggregation.Aggregation agg = org.springframework.data.mongodb.core.aggregation.Aggregation.newAggregation(
+                org.springframework.data.mongodb.core.aggregation.Aggregation.match(
+                        org.springframework.data.mongodb.core.query.Criteria.where("tradeDate").gte(cutoff).and("lastTrade").ne(null)
+                ),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.sort(org.springframework.data.domain.Sort.Direction.ASC, "tradeDate"),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.group("companyCode")
+                        .push("lastTrade").as("prices")
+                        .push("tradeDate").as("dates")
+        );
+        List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        docs.forEach(d -> {
+            String code = d.getString("_id");
+            List<?> rawPrices = d.getList("prices", Object.class);
+            List<?> rawDates = d.getList("dates", Object.class);
+            if (rawPrices != null && rawPrices.size() >= 2) {
+                List<Double> prices = rawPrices.stream().map(v -> toDouble(v)).filter(v -> v > 0).collect(java.util.stream.Collectors.toList());
+                List<String> dates = rawDates != null ? rawDates.stream().map(v -> {
+                    if (v instanceof java.util.Date dt) return dt.toInstant().atZone(TZ).toLocalDate().toString();
+                    return v != null ? v.toString() : "";
+                }).collect(java.util.stream.Collectors.toList()) : List.of();
+                if (prices.size() >= 2) result.put(code, java.util.Map.of("prices", prices, "dates", dates));
+            }
+        });
+        return ResponseEntity.ok(result);
+    }
+
     @GetMapping("/ytd")
     public ResponseEntity<Map<String, Object>> getYtd() {
         // Use Java Date for the match to ensure timezone consistency with stored dates

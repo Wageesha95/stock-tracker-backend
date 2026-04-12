@@ -39,11 +39,15 @@ public class MarketDataScraperService {
      * Returns bars as a list of maps with: date, open, high, low, close, volume.
      */
     public List<Map<String, Object>> scrapeCompany(String companyCode) {
-        WebDriver driver = createDriver();
+        WebDriver driver = null;
         try {
+            driver = createDriver();
             return scrapeChartData(driver, companyCode);
+        } catch (Exception e) {
+            log.error("Failed to scrape market data for {}: {}", companyCode, e.getMessage(), e);
+            throw new RuntimeException("Scrape failed for " + companyCode + ": " + e.getMessage());
         } finally {
-            driver.quit();
+            if (driver != null) try { driver.quit(); } catch (Exception ignored) {}
         }
     }
 
