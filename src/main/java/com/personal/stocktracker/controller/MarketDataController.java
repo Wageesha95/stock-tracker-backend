@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -22,6 +23,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/market-data")
 @RequiredArgsConstructor
 public class MarketDataController {
+
+    private static final ZoneId TZ = ZoneId.of("Asia/Colombo");
 
     private final MarketDataService marketDataService;
     private final MarketDataRepository marketDataRepository;
@@ -47,6 +50,82 @@ public class MarketDataController {
         return ResponseEntity.ok(marketDataService.getAll());
     }
 
+    @GetMapping("/ytd")
+    public ResponseEntity<Map<String, Object>> getYtd() {
+        // Use Java Date for the match to ensure timezone consistency with stored dates
+        java.util.Date yearStartDate = java.util.Date.from(
+                LocalDate.now().withDayOfYear(1).atStartOfDay(TZ).toInstant()
+        );
+        org.springframework.data.mongodb.core.aggregation.Aggregation agg = org.springframework.data.mongodb.core.aggregation.Aggregation.newAggregation(
+                org.springframework.data.mongodb.core.aggregation.Aggregation.match(
+                        org.springframework.data.mongodb.core.query.Criteria.where("tradeDate").gte(yearStartDate).and("lastTrade").ne(null)
+                ),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.sort(org.springframework.data.domain.Sort.Direction.ASC, "tradeDate"),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.group("companyCode")
+                        .first("lastTrade").as("firstPrice")
+                        .first("tradeDate").as("firstDate")
+                        .last("lastTrade").as("lastPrice")
+        );
+        List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        docs.forEach(d -> {
+            double first = toDouble(d.get("firstPrice"));
+            double last = toDouble(d.get("lastPrice"));
+            if (first > 0 && last > 0) {
+                double ytd = ((last - first) / first) * 100;
+                Object fd = d.get("firstDate");
+                String firstDateStr = "";
+                if (fd instanceof java.util.Date dt) firstDateStr = dt.toInstant().atZone(TZ).toLocalDate().toString();
+                else if (fd != null) firstDateStr = fd.toString();
+                result.put(d.getString("_id"), java.util.Map.of(
+                    "ytd", Math.round(ytd * 100.0) / 100.0,
+                    "firstPrice", Math.round(first * 100.0) / 100.0,
+                    "firstDate", firstDateStr,
+                    "lastPrice", Math.round(last * 100.0) / 100.0
+                ));
+            }
+        });
+        return ResponseEntity.ok(result);
+    }
+
+    private double toDouble(Object val) {
+        if (val == null) return 0;
+        if (val instanceof Number n) return n.doubleValue();
+        if (val instanceof org.bson.types.Decimal128 d) return d.bigDecimalValue().doubleValue();
+        try { return Double.parseDouble(val.toString()); } catch (Exception e) { return 0; }
+    }
+
+    @GetMapping("/year-low")
+    public ResponseEntity<Map<String, Object>> getYearLow() {
+        java.util.Date yearStartDate = java.util.Date.from(
+                LocalDate.now().withDayOfYear(1).atStartOfDay(TZ).toInstant()
+        );
+        // Use MarketData.class mapping to handle Decimal128 correctly
+        org.springframework.data.mongodb.core.aggregation.Aggregation agg = org.springframework.data.mongodb.core.aggregation.Aggregation.newAggregation(
+                org.springframework.data.mongodb.core.aggregation.Aggregation.match(
+                        org.springframework.data.mongodb.core.query.Criteria.where("tradeDate").gte(yearStartDate).and("low").ne(null)
+                ),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.sort(org.springframework.data.domain.Sort.Direction.ASC, "low"),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.group("companyCode")
+                        .first("low").as("lowVal")
+                        .first("tradeDate").as("lowDate")
+                        .first("companyCode").as("code")
+        );
+        List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        docs.forEach(d -> {
+            double low = toDouble(d.get("lowVal"));
+            if (low > 0) {
+                Object date = d.get("lowDate");
+                String dateStr = "";
+                if (date instanceof java.util.Date dt) dateStr = dt.toInstant().atZone(TZ).toLocalDate().toString();
+                else if (date != null) dateStr = date.toString();
+                result.put(d.getString("_id"), java.util.Map.of("price", low, "date", dateStr));
+            }
+        });
+        return ResponseEntity.ok(result);
+    }
+
     @GetMapping("/{code}")
     public ResponseEntity<MarketData> getByCompanyCode(@PathVariable String code) {
         return ResponseEntity.ok(marketDataService.getByCompanyCode(code));
@@ -68,7 +147,7 @@ public class MarketDataController {
                 .map(doc -> {
                     Object id = doc.get("_id");
                     if (id instanceof java.time.LocalDate ld) return ld.toString();
-                    if (id instanceof java.util.Date d) return d.toInstant().atZone(java.time.ZoneOffset.UTC).toLocalDate().toString();
+                    if (id instanceof java.util.Date d) return d.toInstant().atZone(TZ).toLocalDate().toString();
                     return id.toString();
                 })
                 .collect(Collectors.toList());

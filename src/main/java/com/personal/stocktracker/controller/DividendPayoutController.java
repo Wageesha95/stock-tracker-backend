@@ -16,6 +16,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
 
+@lombok.extern.slf4j.Slf4j
 @RestController
 @RequiredArgsConstructor
 public class DividendPayoutController {
@@ -54,8 +55,18 @@ public class DividendPayoutController {
     }
 
     @GetMapping("/api/dividend-payouts")
-    public ResponseEntity<List<DividendPayout>> getAll() {
-        return ResponseEntity.ok(dividendPayoutRepository.findAll());
+    public ResponseEntity<?> getAll() {
+        try {
+            List<DividendPayout> all = dividendPayoutRepository.findAll();
+            LocalDate twoYearsAgo = LocalDate.now().minusYears(2);
+            List<DividendPayout> filtered = all.stream()
+                    .filter(p -> p.getExDividendDate() != null && !p.getExDividendDate().isBefore(twoYearsAgo))
+                    .collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(filtered);
+        } catch (Exception e) {
+            log.error("Failed to load dividend payouts: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/api/dividend-payouts/company/{code}")
@@ -170,6 +181,7 @@ public class DividendPayoutController {
                 h.put("paymentDate", p.getPaymentDate() != null ? p.getPaymentDate().toString() : null);
                 h.put("announcementDate", p.getAnnouncementDate() != null ? p.getAnnouncementDate().toString() : null);
                 h.put("dividendType", p.getDividendType());
+                h.put("priceOnXdDate", p.getPriceOnXdDate());
                 history.add(h);
                 if (p.getAmountPerShare() != null) {
                     totalAmount = totalAmount.add(p.getAmountPerShare());
