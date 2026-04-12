@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -27,6 +29,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
@@ -37,6 +40,7 @@ public class DashboardController {
     private final CompanyRepository companyRepository;
     private final IndustryGroupRepository industryGroupRepository;
     private final ShareSplitRepository shareSplitRepository;
+    private final com.personal.stocktracker.service.MarketDataService marketDataService;
 
     /**
      * Apply split adjustments to a transaction's count and price.
@@ -65,20 +69,26 @@ public class DashboardController {
 
     @GetMapping("/all")
     public ResponseEntity<Map<String, Object>> getAll() {
+        long start = System.currentTimeMillis();
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        // Single DB query for all data
+
+        long t0 = System.currentTimeMillis();
         List<Transaction> allTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
+        log.info("Dashboard [{}] transactions: {}ms ({} records)", username, System.currentTimeMillis() - t0, allTransactions.size());
+
+        t0 = System.currentTimeMillis();
         List<ShareSplit> allSplits = shareSplitRepository.findByUserIdOrderByDateDesc(username);
-        // Get latest market data per company (pick most recent tradeDate)
-        Map<String, MarketData> marketDataMap = marketDataRepository.findAll().stream()
-                .collect(Collectors.toMap(
-                        MarketData::getCompanyCode,
-                        m -> m,
-                        (a, b) -> a.getTradeDate() != null && b.getTradeDate() != null
-                                && a.getTradeDate().isAfter(b.getTradeDate()) ? a : b
-                ));
+        log.info("Dashboard [{}] splits: {}ms ({} records)", username, System.currentTimeMillis() - t0, allSplits.size());
+
+        t0 = System.currentTimeMillis();
+        Map<String, MarketData> marketDataMap = marketDataService.getLatestPerCompany().stream()
+                .collect(Collectors.toMap(MarketData::getCompanyCode, m -> m, (a, b) -> a));
+        log.info("Dashboard [{}] marketData: {}ms ({} companies)", username, System.currentTimeMillis() - t0, marketDataMap.size());
+
+        t0 = System.currentTimeMillis();
         Map<String, Company> companyMap = companyRepository.findAll().stream()
                 .collect(Collectors.toMap(Company::getCode, c -> c, (a, b) -> a));
+        log.info("Dashboard [{}] companies: {}ms ({} records)", username, System.currentTimeMillis() - t0, companyMap.size());
 
         Map<String, List<Transaction>> grouped = allTransactions.stream()
                 .collect(Collectors.groupingBy(Transaction::getCompanyCode));
@@ -87,6 +97,7 @@ public class DashboardController {
         BigDecimal annualRate = new BigDecimal("0.065");
 
         // --- Portfolio ---
+        t0 = System.currentTimeMillis();
         List<PortfolioItem> portfolio = new ArrayList<>();
         for (Map.Entry<String, List<Transaction>> entry : grouped.entrySet()) {
             String code = entry.getKey();
@@ -148,7 +159,10 @@ public class DashboardController {
                     .build());
         }
 
+        log.info("Dashboard [{}] portfolio calc: {}ms ({} items)", username, System.currentTimeMillis() - t0, portfolio.size());
+
         // --- Realized Gains ---
+        t0 = System.currentTimeMillis();
         List<RealizedGainItem> realizedItems = new ArrayList<>();
         for (Map.Entry<String, List<Transaction>> entry : grouped.entrySet()) {
             String code = entry.getKey();
@@ -186,8 +200,10 @@ public class DashboardController {
             }
         }
         realizedItems.sort((a, b) -> b.getSellDate().compareTo(a.getSellDate()));
+        log.info("Dashboard [{}] realized calc: {}ms ({} items)", username, System.currentTimeMillis() - t0, realizedItems.size());
 
         // --- Opportunity Cost (FIFO running balance) ---
+        t0 = System.currentTimeMillis();
         // Sort all transactions chronologically
         List<Transaction> chronologicalTx = new ArrayList<>(allTransactions);
         chronologicalTx.sort(Comparator.comparing(Transaction::getDate));
@@ -278,8 +294,10 @@ public class DashboardController {
             breakdown.add(item);
         }
         breakdown.sort((a, b) -> ((BigDecimal) b.get("interest")).compareTo((BigDecimal) a.get("interest")));
+        log.info("Dashboard [{}] opportunity cost calc: {}ms", username, System.currentTimeMillis() - t0);
 
         // --- Sector Summary ---
+        t0 = System.currentTimeMillis();
         Map<String, IndustryGroup> groupMap = industryGroupRepository.findAll().stream()
                 .collect(Collectors.toMap(IndustryGroup::getId, g -> g, (a, b) -> a));
 
@@ -329,6 +347,9 @@ public class DashboardController {
             sectors.add(s);
         }
         sectors.sort((a, b) -> ((BigDecimal) b.get("currentValue")).compareTo((BigDecimal) a.get("currentValue")));
+
+        log.info("Dashboard [{}] sector calc: {}ms", username, System.currentTimeMillis() - t0);
+        log.info("Dashboard [{}] TOTAL: {}ms", username, System.currentTimeMillis() - start);
 
         // --- Response ---
         Map<String, Object> result = new LinkedHashMap<>();

@@ -6,6 +6,10 @@ import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,6 +31,7 @@ public class MarketDataService {
 
     private final MarketDataRepository marketDataRepository;
     private final CompanyRepository companyRepository;
+    private final MongoTemplate mongoTemplate;
 
     public int parseAndSaveCsv(MultipartFile file, LocalDate tradeDate) {
         int count = 0;
@@ -147,7 +152,21 @@ public class MarketDataService {
     }
 
     public List<MarketData> getAll() {
-        return marketDataRepository.findAll();
+        return getLatestPerCompany();
+    }
+
+    /**
+     * Returns only the latest MarketData record per company using MongoDB aggregation.
+     * Much faster than findAll() when historical data exists.
+     */
+    public List<MarketData> getLatestPerCompany() {
+        Aggregation agg = Aggregation.newAggregation(
+                Aggregation.sort(Sort.Direction.DESC, "tradeDate"),
+                Aggregation.group("companyCode").first("$$ROOT").as("doc"),
+                Aggregation.replaceRoot("doc")
+        );
+        AggregationResults<MarketData> results = mongoTemplate.aggregate(agg, "market_data", MarketData.class);
+        return results.getMappedResults();
     }
 
     public MarketData getByCompanyCode(String code) {

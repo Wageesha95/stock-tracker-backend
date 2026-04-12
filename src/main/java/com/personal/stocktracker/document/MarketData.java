@@ -27,6 +27,8 @@ public class MarketData {
 
     private String companyName;
 
+    private BigDecimal open;
+
     private BigDecimal lastTrade;
 
     private BigDecimal high;
@@ -36,6 +38,8 @@ public class MarketData {
     private BigDecimal change;
 
     private BigDecimal changePercent;
+
+    private BigDecimal volume;
 
     private LocalDate tradeDate;
 

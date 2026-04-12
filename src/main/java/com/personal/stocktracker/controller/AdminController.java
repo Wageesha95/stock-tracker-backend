@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.mongodb.core.MongoTemplate;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -24,6 +26,41 @@ public class AdminController {
     private final IndustryGroupRepository industryGroupRepository;
     private final MarketDataRepository marketDataRepository;
     private final PasswordEncoder passwordEncoder;
+    private final DividendPayoutRepository dividendPayoutRepository;
+    private final DividendRepository dividendRepository;
+    private final MongoTemplate mongoTemplate;
+
+    @GetMapping("/system-stats")
+    public ResponseEntity<Map<String, Object>> getSystemStats() {
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("companies", mongoTemplate.getCollection("companies").countDocuments());
+        stats.put("transactions", mongoTemplate.getCollection("transactions").countDocuments());
+        stats.put("dividends", mongoTemplate.getCollection("dividends").countDocuments());
+        stats.put("dividendPayouts", mongoTemplate.getCollection("dividend_payouts").countDocuments());
+        stats.put("marketData", mongoTemplate.getCollection("market_data").countDocuments());
+        stats.put("stockPrices", mongoTemplate.getCollection("stock_prices").countDocuments());
+        stats.put("industryGroups", mongoTemplate.getCollection("industry_groups").countDocuments());
+        stats.put("watchlists", mongoTemplate.getCollection("watchlists").countDocuments());
+        stats.put("loginHistory", mongoTemplate.getCollection("login_history").countDocuments());
+
+        // Latest market data date
+        var latestMd = marketDataRepository.findAll().stream()
+                .map(m -> m.getTradeDate())
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        stats.put("latestMarketDate", latestMd != null ? latestMd.toString() : null);
+
+        // Distinct market data dates count
+        long distinctDates = marketDataRepository.findAll().stream()
+                .map(m -> m.getTradeDate())
+                .filter(Objects::nonNull)
+                .distinct()
+                .count();
+        stats.put("marketDataDates", distinctDates);
+
+        return ResponseEntity.ok(stats);
+    }
 
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getStats() {

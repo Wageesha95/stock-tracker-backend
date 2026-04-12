@@ -16,4 +16,6 @@ public interface DividendPayoutRepository extends MongoRepository<DividendPayout
     Optional<DividendPayout> findByCompanyCodeAndExDividendDate(String companyCode, LocalDate exDividendDate);
 
     boolean existsByCompanyCodeAndExDividendDate(String companyCode, LocalDate exDividendDate);
+
+    List<DividendPayout> findByExDividendDateBetween(LocalDate from, LocalDate to);
 }

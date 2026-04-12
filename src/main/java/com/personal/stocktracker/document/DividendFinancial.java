@@ -10,16 +10,15 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Document(collection = "dividend_payouts")
-@CompoundIndex(name = "company_exdate_idx", def = "{'companyCode': 1, 'exDividendDate': 1}", unique = true)
-public class DividendPayout {
+@Document(collection = "dividend_financials")
+@CompoundIndex(name = "company_year_idx", def = "{'companyCode': 1, 'year': 1}", unique = true)
+public class DividendFinancial {
 
     @Id
     private String id;
@@ -27,13 +26,10 @@ public class DividendPayout {
     @Indexed
     private String companyCode;
 
-    private LocalDate exDividendDate;
-    private BigDecimal amountPerShare;
-    private LocalDate paymentDate;
-    private LocalDate announcementDate;
-    private String dividendType;
-    private BigDecimal priceOnXdDate;
-    private BigDecimal priceOnAnnouncementDate;
+    private int year;
+    private BigDecimal dividendPerShare;
+    private BigDecimal earningsPerShare;
+    private BigDecimal dividendYield;
 
     private LocalDateTime scrapedAt;
 }

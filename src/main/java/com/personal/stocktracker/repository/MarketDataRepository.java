@@ -18,4 +18,12 @@ public interface MarketDataRepository extends MongoRepository<MarketData, String
     List<MarketData> findByCompanyCodeOrderByTradeDateDesc(String companyCode);
 
     List<MarketData> findByTradeDate(LocalDate tradeDate);
+
+    long deleteByTradeDateBefore(LocalDate date);
+
+    long deleteByTradeDateBetween(LocalDate from, LocalDate to);
+
+    long deleteByTradeDateGreaterThanEqual(LocalDate from);
+
+    long deleteByTradeDateLessThanEqual(LocalDate to);
 }
