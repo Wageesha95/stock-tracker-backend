@@ -26,6 +26,7 @@ public class DividendPayoutController {
     private final DividendFinancialScraperService dividendFinancialScraperService;
     private final DividendFinancialRepository dividendFinancialRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
+    private final com.personal.stocktracker.repository.MarketDataRepository marketDataRepository;
 
     @PostMapping("/api/admin/scrape/dividends/{companyCode}/debug")
     public ResponseEntity<String> scrapeDebug(@PathVariable String companyCode) {
@@ -71,9 +72,29 @@ public class DividendPayoutController {
 
     @GetMapping("/api/dividend-payouts/company/{code}")
     public ResponseEntity<List<DividendPayout>> getByCompany(@PathVariable String code) {
-        return ResponseEntity.ok(
-                dividendPayoutRepository.findByCompanyCodeOrderByExDividendDateDesc(code)
-        );
+        List<DividendPayout> payouts = dividendPayoutRepository.findByCompanyCodeOrderByExDividendDateDesc(code);
+        // Fill in missing prices from market data history
+        for (DividendPayout p : payouts) {
+            if (p.getPriceOnXdDate() == null && p.getExDividendDate() != null) {
+                p.setPriceOnXdDate(lookupPrice(code, p.getExDividendDate()));
+            }
+            if (p.getPriceOnAnnouncementDate() == null && p.getAnnouncementDate() != null) {
+                p.setPriceOnAnnouncementDate(lookupPrice(code, p.getAnnouncementDate()));
+            }
+        }
+        return ResponseEntity.ok(payouts);
+    }
+
+    private java.math.BigDecimal lookupPrice(String companyCode, java.time.LocalDate date) {
+        // Try exact date first
+        var exact = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date);
+        if (exact.isPresent() && exact.get().getLastTrade() != null) return exact.get().getLastTrade();
+        // Try previous trading days within 7 days
+        for (int i = 1; i <= 7; i++) {
+            var prev = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date.minusDays(i));
+            if (prev.isPresent() && prev.get().getLastTrade() != null) return prev.get().getLastTrade();
+        }
+        return null;
     }
 
     @PostMapping("/api/admin/scrape/dividend-calendar/preview")
