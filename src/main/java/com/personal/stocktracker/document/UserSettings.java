@@ -31,4 +31,7 @@ public class UserSettings {
 
     @Builder.Default
     private Map<String, List<String>> tableColumns = new HashMap<>();
+
+    @Builder.Default
+    private Map<String, Integer> companyTtmWeeks = new HashMap<>();
 }

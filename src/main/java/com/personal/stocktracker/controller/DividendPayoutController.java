@@ -72,27 +72,45 @@ public class DividendPayoutController {
 
     @GetMapping("/api/dividend-payouts/company/{code}")
     public ResponseEntity<List<DividendPayout>> getByCompany(@PathVariable String code) {
+        code = code.toUpperCase();
         List<DividendPayout> payouts = dividendPayoutRepository.findByCompanyCodeOrderByExDividendDateDesc(code);
-        // Fill in missing prices from market data history
+
+        // Load the company's full market history once, build a date -> lastTrade map, and
+        // look up missing payout prices in memory. Avoids N * (1+7) Mongo round-trips.
+        boolean needsPrice = false;
         for (DividendPayout p : payouts) {
-            if (p.getPriceOnXdDate() == null && p.getExDividendDate() != null) {
-                p.setPriceOnXdDate(lookupPrice(code, p.getExDividendDate()));
+            if ((p.getPriceOnXdDate() == null && p.getExDividendDate() != null)
+                    || (p.getPriceOnAnnouncementDate() == null && p.getAnnouncementDate() != null)) {
+                needsPrice = true;
+                break;
             }
-            if (p.getPriceOnAnnouncementDate() == null && p.getAnnouncementDate() != null) {
-                p.setPriceOnAnnouncementDate(lookupPrice(code, p.getAnnouncementDate()));
+        }
+        if (needsPrice) {
+            var history = marketDataRepository.findByCompanyCodeOrderByTradeDateDesc(code);
+            Map<LocalDate, BigDecimal> priceByDate = new HashMap<>();
+            for (var md : history) {
+                if (md.getTradeDate() != null && md.getLastTrade() != null) {
+                    priceByDate.put(md.getTradeDate(), md.getLastTrade());
+                }
+            }
+            for (DividendPayout p : payouts) {
+                if (p.getPriceOnXdDate() == null && p.getExDividendDate() != null) {
+                    p.setPriceOnXdDate(lookupPriceInMap(priceByDate, p.getExDividendDate()));
+                }
+                if (p.getPriceOnAnnouncementDate() == null && p.getAnnouncementDate() != null) {
+                    p.setPriceOnAnnouncementDate(lookupPriceInMap(priceByDate, p.getAnnouncementDate()));
+                }
             }
         }
         return ResponseEntity.ok(payouts);
     }
 
-    private java.math.BigDecimal lookupPrice(String companyCode, java.time.LocalDate date) {
-        // Try exact date first
-        var exact = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date);
-        if (exact.isPresent() && exact.get().getLastTrade() != null) return exact.get().getLastTrade();
-        // Try previous trading days within 7 days
+    private BigDecimal lookupPriceInMap(Map<LocalDate, BigDecimal> priceByDate, LocalDate date) {
+        BigDecimal p = priceByDate.get(date);
+        if (p != null) return p;
         for (int i = 1; i <= 7; i++) {
-            var prev = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date.minusDays(i));
-            if (prev.isPresent() && prev.get().getLastTrade() != null) return prev.get().getLastTrade();
+            p = priceByDate.get(date.minusDays(i));
+            if (p != null) return p;
         }
         return null;
     }
@@ -130,7 +148,7 @@ public class DividendPayoutController {
 
     @GetMapping("/api/dividend-financials/company/{code}")
     public ResponseEntity<List<DividendFinancial>> getFinancialsByCompany(@PathVariable String code) {
-        return ResponseEntity.ok(dividendFinancialRepository.findByCompanyCodeOrderByYearDesc(code));
+        return ResponseEntity.ok(dividendFinancialRepository.findByCompanyCodeOrderByYearDesc(code.toUpperCase()));
     }
 
     @GetMapping("/api/dividend-payouts/upcoming")

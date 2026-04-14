@@ -32,6 +32,7 @@ public class CompanyService {
         Company company = Company.builder()
                 .code(request.getCode().toUpperCase())
                 .name(request.getName())
+                .industryGroupId(request.getIndustryGroupId())
                 .createdAt(LocalDateTime.now())
                 .build();
 

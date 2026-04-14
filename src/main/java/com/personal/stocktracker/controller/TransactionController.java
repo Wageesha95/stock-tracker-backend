@@ -35,7 +35,7 @@ public class TransactionController {
 
     @GetMapping("/company/{code}")
     public ResponseEntity<List<Transaction>> getTransactionsByCompany(@PathVariable String code) {
-        return ResponseEntity.ok(transactionService.getTransactionsByCompany(currentUsername(), code));
+        return ResponseEntity.ok(transactionService.getTransactionsByCompany(currentUsername(), code.toUpperCase()));
     }
 
     @DeleteMapping("/{id}")

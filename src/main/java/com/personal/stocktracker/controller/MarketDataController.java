@@ -160,12 +160,12 @@ public class MarketDataController {
 
     @GetMapping("/{code}")
     public ResponseEntity<MarketData> getByCompanyCode(@PathVariable String code) {
-        return ResponseEntity.ok(marketDataService.getByCompanyCode(code));
+        return ResponseEntity.ok(marketDataService.getByCompanyCode(code.toUpperCase()));
     }
 
     @GetMapping("/{code}/history")
     public ResponseEntity<List<MarketData>> getHistory(@PathVariable String code) {
-        return ResponseEntity.ok(marketDataRepository.findByCompanyCodeOrderByTradeDateDesc(code));
+        return ResponseEntity.ok(marketDataRepository.findByCompanyCodeOrderByTradeDateDesc(code.toUpperCase()));
     }
 
     @GetMapping("/dates")

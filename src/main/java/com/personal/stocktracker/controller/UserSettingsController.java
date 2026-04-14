@@ -43,4 +43,22 @@ public class UserSettingsController {
         settings.setTableColumns(body);
         return ResponseEntity.ok(userSettingsRepository.save(settings));
     }
+
+    @PutMapping("/company-ttm-weeks/{companyCode}")
+    public ResponseEntity<UserSettings> updateCompanyTtmWeeks(
+            @PathVariable String companyCode,
+            @RequestBody Map<String, Integer> body) {
+        Integer weeks = body.get("weeks");
+        UserSettings settings = userSettingsRepository.findByUserId(currentUsername())
+                .orElse(UserSettings.builder().userId(currentUsername()).build());
+        if (settings.getCompanyTtmWeeks() == null) {
+            settings.setCompanyTtmWeeks(new HashMap<>());
+        }
+        if (weeks == null || weeks <= 0) {
+            settings.getCompanyTtmWeeks().remove(companyCode);
+        } else {
+            settings.getCompanyTtmWeeks().put(companyCode, weeks);
+        }
+        return ResponseEntity.ok(userSettingsRepository.save(settings));
+    }
 }

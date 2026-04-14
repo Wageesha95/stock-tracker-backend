@@ -35,7 +35,7 @@ public class DividendController {
 
     @GetMapping("/company/{code}")
     public ResponseEntity<List<Dividend>> getDividendsByCompany(@PathVariable String code) {
-        return ResponseEntity.ok(dividendService.getDividendsByCompany(currentUsername(), code));
+        return ResponseEntity.ok(dividendService.getDividendsByCompany(currentUsername(), code.toUpperCase()));
     }
 
     @PutMapping("/{id}")
