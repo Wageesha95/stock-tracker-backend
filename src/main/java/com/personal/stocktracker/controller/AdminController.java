@@ -43,21 +43,24 @@ public class AdminController {
         stats.put("watchlists", mongoTemplate.getCollection("watchlists").countDocuments());
         stats.put("loginHistory", mongoTemplate.getCollection("login_history").countDocuments());
 
-        // Latest market data date
-        var latestMd = marketDataRepository.findAll().stream()
-                .map(m -> m.getTradeDate())
-                .filter(Objects::nonNull)
-                .max(Comparator.naturalOrder())
-                .orElse(null);
-        stats.put("latestMarketDate", latestMd != null ? latestMd.toString() : null);
-
-        // Distinct market data dates count
-        long distinctDates = marketDataRepository.findAll().stream()
-                .map(m -> m.getTradeDate())
-                .filter(Objects::nonNull)
-                .distinct()
-                .count();
-        stats.put("marketDataDates", distinctDates);
+        // Latest market data date + distinct date count via single server-side aggregation
+        org.springframework.data.mongodb.core.aggregation.Aggregation mdAgg = org.springframework.data.mongodb.core.aggregation.Aggregation.newAggregation(
+                org.springframework.data.mongodb.core.aggregation.Aggregation.match(
+                        org.springframework.data.mongodb.core.query.Criteria.where("tradeDate").ne(null)
+                ),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.group("tradeDate"),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.sort(org.springframework.data.domain.Sort.Direction.DESC, "_id")
+        );
+        List<org.bson.Document> dateGroups = mongoTemplate.aggregate(mdAgg, "market_data", org.bson.Document.class).getMappedResults();
+        String latestMdStr = null;
+        if (!dateGroups.isEmpty()) {
+            Object id = dateGroups.get(0).get("_id");
+            if (id instanceof java.time.LocalDate ld) latestMdStr = ld.toString();
+            else if (id instanceof java.util.Date dt) latestMdStr = dt.toInstant().atZone(java.time.ZoneId.of("Asia/Colombo")).toLocalDate().toString();
+            else if (id != null) latestMdStr = id.toString();
+        }
+        stats.put("latestMarketDate", latestMdStr);
+        stats.put("marketDataDates", (long) dateGroups.size());
 
         return ResponseEntity.ok(stats);
     }

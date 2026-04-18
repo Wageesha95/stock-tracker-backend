@@ -1,6 +1,7 @@
 package com.personal.stocktracker.repository;
 
 import com.personal.stocktracker.document.Dividend;
+import com.personal.stocktracker.document.DividendType;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
@@ -17,5 +18,5 @@ public interface DividendRepository extends MongoRepository<Dividend, String> {
 
     List<Dividend> findByUserIdAndCompanyCodeOrderByDateDesc(String userId, String companyCode);
 
-    boolean existsByUserIdAndCompanyCodeAndXdDate(String userId, String companyCode, java.time.LocalDate xdDate);
+    boolean existsByUserIdAndCompanyCodeAndTypeAndXdDate(String userId, String companyCode, DividendType type, java.time.LocalDate xdDate);
 }

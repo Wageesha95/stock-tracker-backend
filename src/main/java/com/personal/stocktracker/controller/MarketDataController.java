@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/market-data")
 @RequiredArgsConstructor
@@ -191,34 +193,93 @@ public class MarketDataController {
         return ResponseEntity.ok(marketDataRepository.findByTradeDate(date));
     }
 
+    @GetMapping("/date-summary")
+    public ResponseEntity<List<Map<String, Object>>> getDateSummary() {
+        org.springframework.data.mongodb.core.aggregation.Aggregation agg = org.springframework.data.mongodb.core.aggregation.Aggregation.newAggregation(
+                org.springframework.data.mongodb.core.aggregation.Aggregation.group("tradeDate").count().as("count"),
+                org.springframework.data.mongodb.core.aggregation.Aggregation.sort(org.springframework.data.domain.Sort.Direction.DESC, "_id")
+        );
+        List<Map<String, Object>> result = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class)
+                .getMappedResults().stream()
+                .map(d -> {
+                    Object id = d.get("_id");
+                    String date;
+                    if (id instanceof LocalDate ld) date = ld.toString();
+                    else if (id instanceof java.util.Date dt) date = dt.toInstant().atZone(TZ).toLocalDate().toString();
+                    else date = String.valueOf(id);
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("date", date);
+                    entry.put("count", d.get("count"));
+                    return entry;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
     @PostMapping("/scrape/{companyCode}/preview")
-    public ResponseEntity<List<Map<String, Object>>> scrapePreview(@PathVariable String companyCode) {
-        return ResponseEntity.ok(marketDataScraperService.scrapeCompany(companyCode));
+    public ResponseEntity<?> scrapePreview(@PathVariable String companyCode) {
+        try {
+            return ResponseEntity.ok(marketDataScraperService.scrapeCompany(companyCode));
+        } catch (Exception e) {
+            log.error("scrapePreview failed for {}: {}", companyCode, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", errorMessage(e)));
+        }
     }
 
     @PostMapping("/scrape/{companyCode}/confirm")
-    public ResponseEntity<Map<String, Object>> scrapeConfirm(@PathVariable String companyCode) {
-        return ResponseEntity.ok(marketDataScraperService.scrapeAndSave(companyCode));
+    public ResponseEntity<?> scrapeConfirm(@PathVariable String companyCode) {
+        try {
+            return ResponseEntity.ok(marketDataScraperService.scrapeAndSave(companyCode));
+        } catch (Exception e) {
+            log.error("scrapeConfirm failed for {}: {}", companyCode, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", errorMessage(e)));
+        }
     }
 
     @PostMapping("/scrape/{companyCode}/save-bar")
-    public ResponseEntity<Map<String, Object>> saveSingleBar(
+    public ResponseEntity<?> saveSingleBar(
             @PathVariable String companyCode,
             @RequestBody Map<String, Object> bar) {
-        return ResponseEntity.ok(marketDataScraperService.saveBar(companyCode, bar));
+        try {
+            return ResponseEntity.ok(marketDataScraperService.saveBar(companyCode, bar));
+        } catch (Exception e) {
+            log.error("saveSingleBar failed for {} bar={}: {}", companyCode, bar, e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", errorMessage(e)));
+        }
     }
 
     @PostMapping("/scrape/{companyCode}/save-bars")
-    public ResponseEntity<Map<String, Object>> saveBars(
+    public ResponseEntity<?> saveBars(
             @PathVariable String companyCode,
             @RequestBody List<Map<String, Object>> bars) {
-        int saved = marketDataScraperService.saveBars(companyCode, bars);
-        return ResponseEntity.ok(Map.of("companyCode", companyCode, "totalBars", bars.size(), "newRecords", saved));
+        try {
+            int saved = marketDataScraperService.saveBars(companyCode, bars);
+            return ResponseEntity.ok(Map.of("companyCode", companyCode, "totalBars", bars.size(), "newRecords", saved));
+        } catch (Exception e) {
+            log.error("saveBars failed for {} (count={}): {}", companyCode, bars.size(), e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", errorMessage(e)));
+        }
     }
 
     @PostMapping("/scrape-all")
-    public ResponseEntity<Map<String, Object>> scrapeAll() {
-        return ResponseEntity.ok(marketDataScraperService.scrapeAllCompanies());
+    public ResponseEntity<?> scrapeAll() {
+        try {
+            return ResponseEntity.ok(marketDataScraperService.scrapeAllCompanies());
+        } catch (Exception e) {
+            log.error("scrapeAll failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("error", errorMessage(e)));
+        }
+    }
+
+    private String errorMessage(Throwable e) {
+        String msg = e.getMessage();
+        if (msg == null || msg.isBlank()) msg = e.getClass().getSimpleName();
+        Throwable cause = e.getCause();
+        if (cause != null && cause != e) {
+            String causeMsg = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
+            msg = msg + " | cause: " + causeMsg;
+        }
+        return msg;
     }
 
     @DeleteMapping("/range")

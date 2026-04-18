@@ -31,8 +31,8 @@ public class DividendService {
     public Dividend createDividend(DividendRequest request, String userId) {
         String code = request.getCompanyCode().toUpperCase();
 
-        if (request.getXdDate() != null && dividendRepository.existsByUserIdAndCompanyCodeAndXdDate(userId, code, request.getXdDate())) {
-            throw new RuntimeException("Dividend already exists for " + code + " with XD date " + request.getXdDate());
+        if (request.getXdDate() != null && dividendRepository.existsByUserIdAndCompanyCodeAndTypeAndXdDate(userId, code, request.getType(), request.getXdDate())) {
+            throw new RuntimeException("Dividend already exists for " + code + " with XD date " + request.getXdDate() + " and type " + request.getType());
         }
 
         if (!companyRepository.existsByCode(code)) {
