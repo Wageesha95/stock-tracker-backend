@@ -13,6 +13,7 @@ import com.personal.stocktracker.repository.IndustryGroupRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import com.personal.stocktracker.repository.ShareSplitRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
+import com.personal.stocktracker.util.TransactionComparators;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -102,7 +103,7 @@ public class DashboardController {
         for (Map.Entry<String, List<Transaction>> entry : grouped.entrySet()) {
             String code = entry.getKey();
             List<Transaction> txns = new ArrayList<>(entry.getValue());
-            txns.sort(Comparator.comparing(Transaction::getDate));
+            txns.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
             // FIFO running calculation
             int sharesHeld = 0;
@@ -167,7 +168,7 @@ public class DashboardController {
         for (Map.Entry<String, List<Transaction>> entry : grouped.entrySet()) {
             String code = entry.getKey();
             List<Transaction> txns = new ArrayList<>(entry.getValue());
-            txns.sort(Comparator.comparing(Transaction::getDate));
+            txns.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
             Company comp = companyMap.get(code);
             String compName = comp != null ? comp.getName() : code;
@@ -206,7 +207,7 @@ public class DashboardController {
         t0 = System.currentTimeMillis();
         // Sort all transactions chronologically
         List<Transaction> chronologicalTx = new ArrayList<>(allTransactions);
-        chronologicalTx.sort(Comparator.comparing(Transaction::getDate));
+        chronologicalTx.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
         BigDecimal totalInterest = BigDecimal.ZERO;
         List<Map<String, Object>> breakdown = new ArrayList<>();

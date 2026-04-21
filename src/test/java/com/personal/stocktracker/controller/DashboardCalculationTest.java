@@ -2,6 +2,7 @@ package com.personal.stocktracker.controller;
 
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.document.TransactionType;
+import com.personal.stocktracker.util.TransactionComparators;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -9,7 +10,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,7 +25,7 @@ class DashboardCalculationTest {
      */
     private BigDecimal[] calculateFIFO(List<Transaction> transactions) {
         List<Transaction> txns = new ArrayList<>(transactions);
-        txns.sort(Comparator.comparing(Transaction::getDate));
+        txns.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
         int sharesHeld = 0;
         BigDecimal costBasis = BigDecimal.ZERO;
