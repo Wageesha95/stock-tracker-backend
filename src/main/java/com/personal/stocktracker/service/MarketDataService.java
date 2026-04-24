@@ -38,6 +38,7 @@ public class MarketDataService {
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()))) {
             String line;
+            int volumeIdx = -1;
             boolean headerSkipped = false;
 
             while ((line = reader.readLine()) != null) {
@@ -47,6 +48,7 @@ public class MarketDataService {
                 }
 
                 if (!headerSkipped) {
+                    volumeIdx = findColumnIndex(line.split(","), "share volume");
                     headerSkipped = true;
                     continue;
                 }
@@ -77,6 +79,8 @@ public class MarketDataService {
                     BigDecimal lastTrade = parseBigDecimal(fields[8]);
                     BigDecimal change = parseBigDecimal(fields[9]);
                     BigDecimal changePercent = parseBigDecimal(fields[10]);
+                    BigDecimal volume = (volumeIdx >= 0 && volumeIdx < fields.length)
+                            ? parseBigDecimal(fields[volumeIdx]) : null;
 
                     Optional<MarketData> existing = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, tradeDate);
 
@@ -94,6 +98,7 @@ public class MarketDataService {
                     marketData.setLastTrade(lastTrade);
                     marketData.setChange(change);
                     marketData.setChangePercent(changePercent);
+                    if (volume != null) marketData.setVolume(volume);
                     marketData.setTradeDate(tradeDate);
                     marketData.setUpdatedAt(LocalDateTime.now());
 
@@ -109,6 +114,13 @@ public class MarketDataService {
 
         log.info("Parsed and saved {} market data records", count);
         return count;
+    }
+
+    private static int findColumnIndex(String[] headers, String name) {
+        for (int i = 0; i < headers.length; i++) {
+            if (headers[i].trim().equalsIgnoreCase(name)) return i;
+        }
+        return -1;
     }
 
     public List<Map<String, Object>> previewCsv(MultipartFile file) {
