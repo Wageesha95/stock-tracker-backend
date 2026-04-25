@@ -95,7 +95,6 @@ public class DashboardController {
                 .collect(Collectors.groupingBy(Transaction::getCompanyCode));
 
         LocalDate today = LocalDate.now();
-        BigDecimal annualRate = new BigDecimal("0.065");
 
         // --- Portfolio ---
         t0 = System.currentTimeMillis();
@@ -203,95 +202,150 @@ public class DashboardController {
         realizedItems.sort((a, b) -> b.getSellDate().compareTo(a.getSellDate()));
         log.info("Dashboard [{}] realized calc: {}ms ({} items)", username, System.currentTimeMillis() - t0, realizedItems.size());
 
-        // --- Opportunity Cost (FIFO running balance) ---
+        // --- Opportunity Cost (per-lot FIFO) ---
+        // Each buy-lot accrues interest on its actual purchase cost for exactly
+        // the time it was held: from buy date until consumed by a SELL (oldest
+        // lots first), or until today while still held. The breakdown response
+        // exposes one entry per buy lot so the UI can show real lot detail.
         t0 = System.currentTimeMillis();
-        // Sort all transactions chronologically
         List<Transaction> chronologicalTx = new ArrayList<>(allTransactions);
         chronologicalTx.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
-        BigDecimal totalInterest = BigDecimal.ZERO;
-        List<Map<String, Object>> breakdown = new ArrayList<>();
+        // Lot record (mutable). originalShares/buyDate stay fixed; remaining,
+        // endDate and accruedInterest evolve as time passes and SELLs consume.
+        class Lot {
+            final String code;
+            final LocalDate buyDate;
+            final double originalShares;
+            final double costPerShare;
+            double remaining;
+            LocalDate endDate;        // null while still held
+            String status;            // "held", "sold", "partial"
+            double accruedInterest;
+            Lot(String code, LocalDate buyDate, double shares, double costPerShare) {
+                this.code = code;
+                this.buyDate = buyDate;
+                this.originalShares = shares;
+                this.costPerShare = costPerShare;
+                this.remaining = shares;
+                this.status = "held";
+            }
+        }
 
-        // Track running cost basis per company (FIFO)
-        Map<String, BigDecimal> companyCostBasis = new LinkedHashMap<>();
-        Map<String, Integer> companyShares = new LinkedHashMap<>();
-
-        // Calculate interest on running balance between each transaction date
-        BigDecimal runningTotalCost = BigDecimal.ZERO;
-        LocalDate lastDate = null;
+        Map<String, Deque<Lot>> activeLots = new LinkedHashMap<>(); // open queue per company
+        Map<String, List<Lot>> allLotsByCode = new LinkedHashMap<>(); // history (open + closed)
+        double totalInterestD = 0.0;
+        LocalDate lastAccrual = null;
 
         for (Transaction tx : chronologicalTx) {
-            // Calculate interest for the period since last transaction
-            if (lastDate != null && runningTotalCost.compareTo(BigDecimal.ZERO) > 0) {
-                long periodDays = ChronoUnit.DAYS.between(lastDate, tx.getDate());
+            if (lastAccrual != null) {
+                long periodDays = ChronoUnit.DAYS.between(lastAccrual, tx.getDate());
                 if (periodDays > 0) {
-                    BigDecimal periodInterest = runningTotalCost.multiply(annualRate)
-                            .multiply(BigDecimal.valueOf(periodDays))
-                            .divide(BigDecimal.valueOf(365), 4, RoundingMode.HALF_UP);
-                    totalInterest = totalInterest.add(periodInterest);
+                    for (Deque<Lot> lots : activeLots.values()) {
+                        for (Lot lot : lots) {
+                            double inc = lot.remaining * lot.costPerShare * 0.065 * periodDays / 365.0;
+                            lot.accruedInterest += inc;
+                            totalInterestD += inc;
+                        }
+                    }
                 }
             }
+            lastAccrual = tx.getDate();
 
             String code = tx.getCompanyCode();
-            BigDecimal cb = companyCostBasis.getOrDefault(code, BigDecimal.ZERO);
-            int shares = companyShares.getOrDefault(code, 0);
+            Deque<Lot> openQueue = activeLots.computeIfAbsent(code, k -> new ArrayDeque<>());
+            List<Lot> history = allLotsByCode.computeIfAbsent(code, k -> new ArrayList<>());
 
             if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
-                BigDecimal amount = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission());
-                cb = cb.add(amount);
-                shares += tx.getCount();
-                runningTotalCost = runningTotalCost.add(amount);
+                if (tx.getCount() > 0) {
+                    double lotCost = tx.getPrice().doubleValue() * tx.getCount() + tx.getCommission().doubleValue();
+                    Lot lot = new Lot(code, tx.getDate(), tx.getCount(), lotCost / tx.getCount());
+                    openQueue.addLast(lot);
+                    history.add(lot);
+                }
             } else if (tx.getType() == TransactionType.SELL) {
-                BigDecimal avgAtSell = shares > 0
-                        ? cb.divide(BigDecimal.valueOf(shares), 4, RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO;
-                BigDecimal costRemoved = avgAtSell.multiply(BigDecimal.valueOf(tx.getCount()));
-                cb = cb.subtract(costRemoved);
-                shares -= tx.getCount();
-                runningTotalCost = runningTotalCost.subtract(costRemoved);
+                double toSell = tx.getCount();
+                while (toSell > 0 && !openQueue.isEmpty()) {
+                    Lot lot = openQueue.peekFirst();
+                    if (lot.remaining <= toSell) {
+                        toSell -= lot.remaining;
+                        lot.remaining = 0;
+                        lot.endDate = tx.getDate();
+                        lot.status = "sold";
+                        openQueue.pollFirst();
+                    } else {
+                        lot.remaining -= toSell;
+                        lot.status = "partial";
+                        // partial fills do not close the lot; it continues to accrue
+                        toSell = 0;
+                    }
+                }
             }
-
-            companyCostBasis.put(code, cb);
-            companyShares.put(code, shares);
-            lastDate = tx.getDate();
         }
 
-        // Interest from last transaction to today
-        if (lastDate != null && runningTotalCost.compareTo(BigDecimal.ZERO) > 0) {
-            long remainingDays = ChronoUnit.DAYS.between(lastDate, today);
+        // Final accrual: from last transaction up to today, on still-open lots.
+        if (lastAccrual != null) {
+            long remainingDays = ChronoUnit.DAYS.between(lastAccrual, today);
             if (remainingDays > 0) {
-                BigDecimal remainingInterest = runningTotalCost.multiply(annualRate)
-                        .multiply(BigDecimal.valueOf(remainingDays))
-                        .divide(BigDecimal.valueOf(365), 4, RoundingMode.HALF_UP);
-                totalInterest = totalInterest.add(remainingInterest);
+                for (Deque<Lot> lots : activeLots.values()) {
+                    for (Lot lot : lots) {
+                        double inc = lot.remaining * lot.costPerShare * 0.065 * remainingDays / 365.0;
+                        lot.accruedInterest += inc;
+                        totalInterestD += inc;
+                    }
+                }
             }
         }
 
-        // Build breakdown per company (current invested amount and total days)
-        for (Map.Entry<String, BigDecimal> entry : companyCostBasis.entrySet()) {
+        BigDecimal totalInterest = BigDecimal.valueOf(totalInterestD).setScale(4, RoundingMode.HALF_UP);
+
+        // Build breakdown — one row per company, with per-lot children.
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+        for (Map.Entry<String, List<Lot>> entry : allLotsByCode.entrySet()) {
             String code = entry.getKey();
-            BigDecimal currentCost = entry.getValue();
-            if (currentCost.compareTo(BigDecimal.ZERO) <= 0) continue;
+            List<Lot> lots = entry.getValue();
+            if (lots.isEmpty()) continue;
+
+            double currentCostD = 0.0;
+            double companyInterestD = 0.0;
+            for (Lot lot : lots) {
+                currentCostD += lot.remaining * lot.costPerShare;
+                companyInterestD += lot.accruedInterest;
+            }
+            // Skip companies fully sold with negligible interest.
+            if (currentCostD <= 0 && companyInterestD < 0.005) continue;
 
             Company comp = companyMap.get(code);
-            // Find first buy date for this company
-            LocalDate firstDate = chronologicalTx.stream()
-                    .filter(t -> t.getCompanyCode().equals(code))
-                    .map(Transaction::getDate)
-                    .findFirst().orElse(today);
+            LocalDate firstDate = lots.get(0).buyDate;
             long days = ChronoUnit.DAYS.between(firstDate, today);
 
-            BigDecimal interest = currentCost.multiply(annualRate)
-                    .multiply(BigDecimal.valueOf(days))
-                    .divide(BigDecimal.valueOf(365), 2, RoundingMode.HALF_UP);
+            List<Map<String, Object>> lotJson = new ArrayList<>();
+            for (Lot lot : lots) {
+                LocalDate endD = lot.endDate != null ? lot.endDate : today;
+                long lotDays = ChronoUnit.DAYS.between(lot.buyDate, endD);
+                double lotCostD = lot.originalShares * lot.costPerShare;
+
+                Map<String, Object> j = new LinkedHashMap<>();
+                j.put("buyDate", lot.buyDate.toString());
+                j.put("shares", lot.originalShares);
+                j.put("remaining", lot.remaining);
+                j.put("costPerShare", BigDecimal.valueOf(lot.costPerShare).setScale(4, RoundingMode.HALF_UP));
+                j.put("lotCost", BigDecimal.valueOf(lotCostD).setScale(4, RoundingMode.HALF_UP));
+                j.put("status", lot.status);
+                j.put("endDate", lot.endDate != null ? lot.endDate.toString() : null);
+                j.put("days", lotDays);
+                j.put("interest", BigDecimal.valueOf(lot.accruedInterest).setScale(2, RoundingMode.HALF_UP));
+                lotJson.add(j);
+            }
 
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("companyCode", code);
             item.put("companyName", comp != null ? comp.getName() : code);
             item.put("date", firstDate.toString());
-            item.put("amount", currentCost.setScale(4, RoundingMode.HALF_UP));
+            item.put("amount", BigDecimal.valueOf(currentCostD).setScale(4, RoundingMode.HALF_UP));
             item.put("days", days);
-            item.put("interest", interest);
+            item.put("interest", BigDecimal.valueOf(companyInterestD).setScale(2, RoundingMode.HALF_UP));
+            item.put("lots", lotJson);
             breakdown.add(item);
         }
         breakdown.sort((a, b) -> ((BigDecimal) b.get("interest")).compareTo((BigDecimal) a.get("interest")));
