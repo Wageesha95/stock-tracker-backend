@@ -4,7 +4,6 @@ import com.personal.stocktracker.config.ScraperConfig;
 import com.personal.stocktracker.document.DividendFinancial;
 import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.DividendFinancialRepository;
-import io.github.bonigarcia.wdm.WebDriverManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
@@ -410,7 +409,6 @@ public class DividendFinancialScraperService {
     }
 
     private WebDriver createDriver() {
-        WebDriverManager.chromedriver().setup();
         ChromeOptions options = new ChromeOptions();
         if (scraperConfig.isHeadless()) {
             options.addArguments("--headless=new");
@@ -420,7 +418,7 @@ public class DividendFinancialScraperService {
                 "--window-size=1920,8000",
                 "--disable-blink-features=AutomationControlled",
                 "--blink-settings=imagesEnabled=false",
-                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
         );
         LoggingPreferences logPrefs = new LoggingPreferences();
         logPrefs.enable(LogType.PERFORMANCE, Level.ALL);
