@@ -9,6 +9,7 @@ import com.personal.stocktracker.repository.UserRepository;
 import com.personal.stocktracker.service.GeoIpService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -17,7 +18,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -35,6 +39,63 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
 
     private static final int MAX_FAILED_ATTEMPTS = 3;
+    private static final int MAX_SIGNUPS_PER_DAY = 10;
+    private static final ZoneId SIGNUP_ZONE = ZoneId.of("Asia/Colombo");
+
+    @PostMapping("/signup")
+    public ResponseEntity<?> signup(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        String rawUsername = body.get("username");
+        String password = body.get("password");
+
+        if (rawUsername == null || rawUsername.isBlank() || password == null || password.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Username and password required"));
+        }
+        String username = rawUsername.trim();
+
+        if (userRepository.findByUsername(username).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already exists"));
+        }
+
+        // Rate limit: max 10 new accounts per calendar day in Asia/Colombo.
+        ZonedDateTime startZ = LocalDate.now(SIGNUP_ZONE).atStartOfDay(SIGNUP_ZONE);
+        LocalDateTime dayStart = startZ.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        LocalDateTime dayEnd = startZ.plusDays(1).withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        long todayCount = userRepository.countByCreatedAtBetween(dayStart, dayEnd);
+        if (todayCount >= MAX_SIGNUPS_PER_DAY) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Daily signup limit reached. Please try again tomorrow."));
+        }
+
+        User user = User.builder()
+                .username(username)
+                .password(passwordEncoder.encode(password))
+                .role("USER")
+                .createdAt(LocalDateTime.now())
+                .build();
+        user = userRepository.save(user);
+
+        String userAgent = request.getHeader("User-Agent");
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isBlank()) ip = request.getRemoteAddr();
+        final String signupIp = ip;
+        final String signupUa = userAgent;
+        final String signupUser = user.getUsername();
+        CompletableFuture.runAsync(() -> loginHistoryRepository.save(LoginHistory.builder()
+                .username(signupUser).action("SIGNUP")
+                .device(signupUa != null ? signupUa : "Unknown").ipAddress(signupIp)
+                .location(geoIpService.lookup(signupIp)).timestamp(LocalDateTime.now())
+                .build()));
+
+        String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), false);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", user.getId());
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole());
+        response.put("readMode", false);
+        response.put("dividendPayoutsEnabled", user.isDividendPayoutsEnabled());
+        response.put("token", token);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> body, HttpServletRequest request) {
