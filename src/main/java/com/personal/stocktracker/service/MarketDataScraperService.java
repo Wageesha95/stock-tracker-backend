@@ -5,10 +5,10 @@ import com.personal.stocktracker.document.Company;
 import com.personal.stocktracker.document.MarketData;
 import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
-import io.github.bonigarcia.wdm.WebDriverManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.PageLoadStrategy;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.chrome.ChromeDriver;
@@ -115,9 +115,11 @@ public class MarketDataScraperService {
     }
 
     private WebDriver createDriver() {
-        WebDriverManager.chromedriver().setup();
-
         ChromeOptions options = new ChromeOptions();
+        // EAGER returns from driver.get() at DOMContentLoaded instead of waiting for every
+        // subresource. TradingView keeps streaming after load, so the default strategy
+        // can hit the 25s renderer-message timeout even when the chart is already usable.
+        options.setPageLoadStrategy(PageLoadStrategy.EAGER);
         if (scraperConfig.isHeadless()) {
             options.addArguments("--headless=new");
         }
@@ -128,7 +130,7 @@ public class MarketDataScraperService {
                 "--window-size=1920,1080",
                 "--disable-blink-features=AutomationControlled",
                 "--blink-settings=imagesEnabled=false",
-                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
         );
 
         LoggingPreferences logPrefs = new LoggingPreferences();
