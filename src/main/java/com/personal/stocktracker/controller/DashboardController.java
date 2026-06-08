@@ -176,13 +176,18 @@ public class DashboardController {
             BigDecimal buyCost = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
+                // Normalize to post-split basis so a pre-split buy and a post-split sell
+                // are measured in the same share units (otherwise the gain is nonsense).
+                int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
+                BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
+
                 if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
-                    buyShares += tx.getCount();
-                    buyCost = buyCost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
+                    buyShares += adjCount;
+                    buyCost = buyCost.add(adjPrice.multiply(BigDecimal.valueOf(adjCount)).add(tx.getCommission()));
                 } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avg = buyShares > 0 ? buyCost.divide(BigDecimal.valueOf(buyShares), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
-                    BigDecimal sellRev = tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).subtract(tx.getCommission());
-                    BigDecimal costBasis = avg.multiply(BigDecimal.valueOf(tx.getCount()));
+                    BigDecimal sellRev = adjPrice.multiply(BigDecimal.valueOf(adjCount)).subtract(tx.getCommission());
+                    BigDecimal costBasis = avg.multiply(BigDecimal.valueOf(adjCount));
                     BigDecimal gain = sellRev.subtract(costBasis).setScale(4, RoundingMode.HALF_UP);
                     BigDecimal gainPct = costBasis.compareTo(BigDecimal.ZERO) != 0
                             ? gain.divide(costBasis, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
@@ -190,11 +195,11 @@ public class DashboardController {
 
                     realizedItems.add(RealizedGainItem.builder()
                             .companyCode(code).companyName(compName)
-                            .sellDate(tx.getDate()).sharesSold(tx.getCount())
-                            .avgBuyPrice(avg).sellPrice(tx.getPrice()).commission(tx.getCommission())
+                            .sellDate(tx.getDate()).sharesSold(adjCount)
+                            .avgBuyPrice(avg).sellPrice(adjPrice).commission(tx.getCommission())
                             .realizedGain(gain).gainPercent(gainPct).build());
 
-                    buyShares -= tx.getCount();
+                    buyShares -= adjCount;
                     buyCost = buyCost.subtract(costBasis);
                 }
             }
@@ -256,15 +261,19 @@ public class DashboardController {
             Deque<Lot> openQueue = activeLots.computeIfAbsent(code, k -> new ArrayDeque<>());
             List<Lot> history = allLotsByCode.computeIfAbsent(code, k -> new ArrayList<>());
 
+            // Post-split basis so buy lots and sell quantities match in the same units.
+            int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
+            BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
+
             if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
-                if (tx.getCount() > 0) {
-                    double lotCost = tx.getPrice().doubleValue() * tx.getCount() + tx.getCommission().doubleValue();
-                    Lot lot = new Lot(code, tx.getDate(), tx.getCount(), lotCost / tx.getCount());
+                if (adjCount > 0) {
+                    double lotCost = adjPrice.doubleValue() * adjCount + tx.getCommission().doubleValue();
+                    Lot lot = new Lot(code, tx.getDate(), adjCount, lotCost / adjCount);
                     openQueue.addLast(lot);
                     history.add(lot);
                 }
             } else if (tx.getType() == TransactionType.SELL) {
-                double toSell = tx.getCount();
+                double toSell = adjCount;
                 while (toSell > 0 && !openQueue.isEmpty()) {
                     Lot lot = openQueue.peekFirst();
                     if (lot.remaining <= toSell) {
