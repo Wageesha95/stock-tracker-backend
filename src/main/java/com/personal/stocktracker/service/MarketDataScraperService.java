@@ -462,8 +462,17 @@ public class MarketDataScraperService {
         String companyName = company.map(Company::getName).orElse(companyCode);
         log.info("Saving {} bars for {} (name: {})", bars.size(), companyCode, companyName);
 
+        // Load every stored row for this company once, instead of one query per bar (avoids N+1).
+        Map<LocalDate, MarketData> existingByDate = new HashMap<>();
+        for (MarketData md : marketDataRepository.findByCompanyCodeOrderByTradeDateDesc(companyCode)) {
+            existingByDate.put(md.getTradeDate(), md);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        List<MarketData> toSave = new ArrayList<>();
         int newCount = 0;
         int updatedCount = 0;
+        int unchangedCount = 0;
         int skippedCount = 0;
         for (Map<String, Object> bar : bars) {
             try {
@@ -484,17 +493,27 @@ public class MarketDataScraperService {
                 }
 
                 BigDecimal open = toBigDecimal(bar.get("open"));
-                Optional<MarketData> existing = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date);
-                if (existing.isPresent()) {
-                    MarketData md = existing.get();
-                    md.setOpen(open);
-                    md.setLastTrade(close);
-                    md.setHigh(high);
-                    md.setLow(low);
-                    md.setVolume(volume);
-                    md.setUpdatedAt(LocalDateTime.now());
-                    marketDataRepository.save(md);
-                    updatedCount++;
+                MarketData existing = existingByDate.get(date);
+                if (existing != null) {
+                    // Only write back when a value actually changed — skip otherwise so we don't
+                    // rewrite (and re-stamp) untouched history on every re-scrape.
+                    boolean changed = valueChanged(existing.getOpen(), open)
+                            || valueChanged(existing.getLastTrade(), close)
+                            || valueChanged(existing.getHigh(), high)
+                            || valueChanged(existing.getLow(), low)
+                            || valueChanged(existing.getVolume(), volume);
+                    if (changed) {
+                        existing.setOpen(open);
+                        existing.setLastTrade(close);
+                        existing.setHigh(high);
+                        existing.setLow(low);
+                        existing.setVolume(volume);
+                        existing.setUpdatedAt(now);
+                        toSave.add(existing);
+                        updatedCount++;
+                    } else {
+                        unchangedCount++;
+                    }
                 } else {
                     BigDecimal change = (open != null && open.compareTo(BigDecimal.ZERO) != 0)
                             ? close.subtract(open) : BigDecimal.ZERO;
@@ -502,7 +521,7 @@ public class MarketDataScraperService {
                             ? change.divide(open, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
                             : BigDecimal.ZERO;
 
-                    marketDataRepository.save(MarketData.builder()
+                    toSave.add(MarketData.builder()
                             .companyCode(companyCode)
                             .companyName(companyName)
                             .open(open)
@@ -513,15 +532,20 @@ public class MarketDataScraperService {
                             .change(change)
                             .changePercent(changePct)
                             .tradeDate(date)
-                            .updatedAt(LocalDateTime.now())
+                            .updatedAt(now)
                             .build());
                     newCount++;
                 }
             } catch (Exception e) {
-                log.error("Failed to save bar for {} date={}: {}", companyCode, bar.get("date"), e.getMessage());
+                log.error("Failed to process bar for {} date={}: {}", companyCode, bar.get("date"), e.getMessage());
             }
         }
-        log.info("Save complete for {}: {} new, {} updated, {} skipped (zero close)", companyCode, newCount, updatedCount, skippedCount);
+
+        if (!toSave.isEmpty()) {
+            marketDataRepository.saveAll(toSave);
+        }
+        log.info("Save complete for {}: {} new, {} updated, {} unchanged, {} skipped (zero close)",
+                companyCode, newCount, updatedCount, unchangedCount, skippedCount);
         return newCount;
     }
 
@@ -575,6 +599,16 @@ public class MarketDataScraperService {
         }
         log.info("Saved single bar for {} date={} ({})", companyCode, date, isNew ? "new" : "updated");
         return Map.of("date", date.toString(), "status", isNew ? "new" : "updated");
+    }
+
+    /**
+     * Null-safe BigDecimal comparison that ignores scale (5 and 5.00 are equal).
+     * Returns true when the scraped value differs from what is already stored.
+     */
+    private boolean valueChanged(BigDecimal stored, BigDecimal scraped) {
+        if (stored == null) return scraped != null;
+        if (scraped == null) return true;
+        return stored.compareTo(scraped) != 0;
     }
 
     private double toNumber(Object val) {
