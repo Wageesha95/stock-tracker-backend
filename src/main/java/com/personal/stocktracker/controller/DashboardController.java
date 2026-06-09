@@ -104,10 +104,23 @@ public class DashboardController {
             List<Transaction> txns = new ArrayList<>(entry.getValue());
             txns.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
 
+            MarketData md = marketDataMap.get(code);
+            BigDecimal lastTrade = md != null ? md.getLastTrade() : BigDecimal.ZERO;
+            BigDecimal change = md != null ? md.getChange() : BigDecimal.ZERO;
+            BigDecimal changePercent = md != null ? md.getChangePercent() : BigDecimal.ZERO;
+            String companyName = md != null ? md.getCompanyName() : code;
+            LocalDate mdDate = md != null ? md.getTradeDate() : null;
+
             // FIFO running calculation
             int sharesHeld = 0;
             BigDecimal costBasis = BigDecimal.ZERO;
             BigDecimal realizedGain = BigDecimal.ZERO;
+
+            // Day-gain accounting: shares acquired on the latest trade date moved from their
+            // own buy price to the close, not over the full open->close range (they were
+            // bought intraday), so they must not get the whole day's change applied to them.
+            int sharesBoughtOnMdDate = 0;
+            BigDecimal dayGainFromTodayBuys = BigDecimal.ZERO;
 
             for (Transaction tx : txns) {
                 int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
@@ -116,6 +129,11 @@ public class DashboardController {
                 if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
                     sharesHeld += adjCount;
                     costBasis = costBasis.add(adjPrice.multiply(BigDecimal.valueOf(adjCount)).add(tx.getCommission()));
+                    if (mdDate != null && mdDate.equals(tx.getDate())) {
+                        sharesBoughtOnMdDate += adjCount;
+                        dayGainFromTodayBuys = dayGainFromTodayBuys.add(
+                                lastTrade.subtract(adjPrice).multiply(BigDecimal.valueOf(adjCount)));
+                    }
                 } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avgAtSell = sharesHeld > 0
                             ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
@@ -134,12 +152,6 @@ public class DashboardController {
                     : BigDecimal.ZERO;
             realizedGain = realizedGain.setScale(4, RoundingMode.HALF_UP);
 
-            MarketData md = marketDataMap.get(code);
-            BigDecimal lastTrade = md != null ? md.getLastTrade() : BigDecimal.ZERO;
-            BigDecimal change = md != null ? md.getChange() : BigDecimal.ZERO;
-            BigDecimal changePercent = md != null ? md.getChangePercent() : BigDecimal.ZERO;
-            String companyName = md != null ? md.getCompanyName() : code;
-
             BigDecimal sharesHeldBd = BigDecimal.valueOf(sharesHeld);
             BigDecimal currentValue = sharesHeldBd.multiply(lastTrade);
             BigDecimal totalInvested = sharesHeldBd.multiply(avgBuyPrice);
@@ -147,7 +159,13 @@ public class DashboardController {
             BigDecimal unrealizedGainPercent = totalInvested.compareTo(BigDecimal.ZERO) != 0
                     ? unrealizedGain.divide(totalInvested, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-            BigDecimal unrealizedDayGain = currentValue.multiply(changePercent).divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+
+            // Shares held at the trade day's open move open->close (= change per share);
+            // shares bought during that day move buy-price->close (dayGainFromTodayBuys).
+            int sharesHeldAtOpen = Math.max(sharesHeld - sharesBoughtOnMdDate, 0);
+            BigDecimal unrealizedDayGain = BigDecimal.valueOf(sharesHeldAtOpen).multiply(change)
+                    .add(dayGainFromTodayBuys)
+                    .setScale(4, RoundingMode.HALF_UP);
 
             portfolio.add(PortfolioItem.builder()
                     .companyCode(code).companyName(companyName)
