@@ -65,7 +65,7 @@ public class MarketDataController {
                 org.springframework.data.mongodb.core.aggregation.Aggregation.group("companyCode")
                         .push("lastTrade").as("prices")
                         .push("tradeDate").as("dates")
-        );
+        ).withOptions(org.springframework.data.mongodb.core.aggregation.AggregationOptions.builder().allowDiskUse(true).build());
         List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         docs.forEach(d -> {
@@ -99,7 +99,7 @@ public class MarketDataController {
                         .first("lastTrade").as("firstPrice")
                         .first("tradeDate").as("firstDate")
                         .last("lastTrade").as("lastPrice")
-        );
+        ).withOptions(org.springframework.data.mongodb.core.aggregation.AggregationOptions.builder().allowDiskUse(true).build());
         List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         docs.forEach(d -> {
@@ -144,7 +144,7 @@ public class MarketDataController {
                         .first("low").as("lowVal")
                         .first("tradeDate").as("lowDate")
                         .first("companyCode").as("code")
-        );
+        ).withOptions(org.springframework.data.mongodb.core.aggregation.AggregationOptions.builder().allowDiskUse(true).build());
         List<org.bson.Document> docs = mongoTemplate.aggregate(agg, "market_data", org.bson.Document.class).getMappedResults();
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         docs.forEach(d -> {

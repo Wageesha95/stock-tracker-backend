@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOptions;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -172,11 +173,13 @@ public class MarketDataService {
      * Much faster than findAll() when historical data exists.
      */
     public List<MarketData> getLatestPerCompany() {
+        // allowDiskUse lets the blocking sort spill to disk instead of failing once the
+        // in-memory sort of the full collection exceeds Mongo's 32MB cap (error code 292).
         Aggregation agg = Aggregation.newAggregation(
                 Aggregation.sort(Sort.Direction.DESC, "tradeDate"),
                 Aggregation.group("companyCode").first("$$ROOT").as("doc"),
                 Aggregation.replaceRoot("doc")
-        );
+        ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
         AggregationResults<MarketData> results = mongoTemplate.aggregate(agg, "market_data", MarketData.class);
         return results.getMappedResults();
     }
