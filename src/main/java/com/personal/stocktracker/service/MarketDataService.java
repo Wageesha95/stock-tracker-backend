@@ -173,11 +173,16 @@ public class MarketDataService {
      * Much faster than findAll() when historical data exists.
      */
     public List<MarketData> getLatestPerCompany() {
-        // allowDiskUse lets the blocking sort spill to disk instead of failing once the
-        // in-memory sort of the full collection exceeds Mongo's 32MB cap (error code 292).
+        // Sort by {companyCode, tradeDate} ascending so the company_date_idx compound index
+        // provides the order — Mongo streams via an index scan instead of a blocking in-memory
+        // sort of the whole collection (which otherwise exceeds the 32MB cap, error code 292).
+        // $last then yields the highest-tradeDate (latest) row per company. allowDiskUse stays
+        // as a harmless fallback should the planner ever skip the index.
         Aggregation agg = Aggregation.newAggregation(
-                Aggregation.sort(Sort.Direction.DESC, "tradeDate"),
-                Aggregation.group("companyCode").first("$$ROOT").as("doc"),
+                Aggregation.sort(Sort.by(
+                        Sort.Order.asc("companyCode"),
+                        Sort.Order.asc("tradeDate"))),
+                Aggregation.group("companyCode").last("$$ROOT").as("doc"),
                 Aggregation.replaceRoot("doc")
         ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
         AggregationResults<MarketData> results = mongoTemplate.aggregate(agg, "market_data", MarketData.class);
