@@ -6,6 +6,8 @@ import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
+import org.bson.types.Decimal128;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
@@ -20,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -187,6 +190,40 @@ public class MarketDataService {
         ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
         AggregationResults<MarketData> results = mongoTemplate.aggregate(agg, "market_data", MarketData.class);
         return results.getMappedResults();
+    }
+
+    /**
+     * Returns each company's previous trading day's close (the second-most-recent lastTrade),
+     * used to compute day gain against the prior close. Sorting ascending by
+     * {companyCode, tradeDate} uses the company_date_idx index; each company's closes arrive in
+     * order, so the second-to-last entry is the previous close.
+     */
+    public Map<String, BigDecimal> getPreviousClosePerCompany() {
+        Aggregation agg = Aggregation.newAggregation(
+                Aggregation.sort(Sort.by(Sort.Order.asc("companyCode"), Sort.Order.asc("tradeDate"))),
+                Aggregation.group("companyCode").push("lastTrade").as("closes")
+        ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
+        AggregationResults<Document> results = mongoTemplate.aggregate(agg, "market_data", Document.class);
+
+        Map<String, BigDecimal> previousClose = new HashMap<>();
+        for (Document doc : results.getMappedResults()) {
+            List<?> closes = doc.getList("closes", Object.class);
+            // Only companies with at least two days of data have a prior close.
+            if (closes != null && closes.size() >= 2) {
+                BigDecimal prev = toBigDecimal(closes.get(closes.size() - 2));
+                if (prev != null) {
+                    previousClose.put(doc.getString("_id"), prev);
+                }
+            }
+        }
+        return previousClose;
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value instanceof Decimal128 d) return d.bigDecimalValue();
+        if (value instanceof BigDecimal b) return b;
+        if (value instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
+        return null;
     }
 
     public MarketData getByCompanyCode(String code) {

@@ -84,6 +84,7 @@ public class DashboardController {
         t0 = System.currentTimeMillis();
         Map<String, MarketData> marketDataMap = marketDataService.getLatestPerCompany().stream()
                 .collect(Collectors.toMap(MarketData::getCompanyCode, m -> m, (a, b) -> a));
+        Map<String, BigDecimal> previousCloseMap = marketDataService.getPreviousClosePerCompany();
         log.info("Dashboard [{}] marketData: {}ms ({} companies)", username, System.currentTimeMillis() - t0, marketDataMap.size());
 
         t0 = System.currentTimeMillis();
@@ -106,10 +107,22 @@ public class DashboardController {
 
             MarketData md = marketDataMap.get(code);
             BigDecimal lastTrade = md != null ? md.getLastTrade() : BigDecimal.ZERO;
-            BigDecimal change = md != null ? md.getChange() : BigDecimal.ZERO;
-            BigDecimal changePercent = md != null ? md.getChangePercent() : BigDecimal.ZERO;
             String companyName = md != null ? md.getCompanyName() : code;
             LocalDate mdDate = md != null ? md.getTradeDate() : null;
+
+            // Day change measured against the previous trading day's close (standard day gain).
+            // Falls back to the stored intraday change (close - open) when there is no prior day.
+            BigDecimal prevClose = previousCloseMap.get(code);
+            BigDecimal change;
+            BigDecimal changePercent;
+            if (prevClose != null && prevClose.compareTo(BigDecimal.ZERO) != 0) {
+                change = lastTrade.subtract(prevClose);
+                changePercent = change.divide(prevClose, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
+            } else {
+                change = md != null ? md.getChange() : BigDecimal.ZERO;
+                changePercent = md != null ? md.getChangePercent() : BigDecimal.ZERO;
+            }
 
             // FIFO running calculation
             int sharesHeld = 0;
@@ -160,10 +173,10 @@ public class DashboardController {
                     ? unrealizedGain.divide(totalInvested, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
 
-            // Shares held at the trade day's open move open->close (= change per share);
-            // shares bought during that day move buy-price->close (dayGainFromTodayBuys).
-            int sharesHeldAtOpen = Math.max(sharesHeld - sharesBoughtOnMdDate, 0);
-            BigDecimal unrealizedDayGain = BigDecimal.valueOf(sharesHeldAtOpen).multiply(change)
+            // Shares already held going into the trade day move prev-close->close (= change per
+            // share); shares bought during that day move buy-price->close (dayGainFromTodayBuys).
+            int sharesHeldBeforeMdDate = Math.max(sharesHeld - sharesBoughtOnMdDate, 0);
+            BigDecimal unrealizedDayGain = BigDecimal.valueOf(sharesHeldBeforeMdDate).multiply(change)
                     .add(dayGainFromTodayBuys)
                     .setScale(4, RoundingMode.HALF_UP);
 
