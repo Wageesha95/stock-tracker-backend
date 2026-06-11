@@ -52,4 +52,23 @@ public class MessageController {
     public ResponseEntity<List<Message>> mine() {
         return ResponseEntity.ok(messageRepository.findByFromUsernameOrderByCreatedAtDesc(currentUsername()));
     }
+
+    @GetMapping("/unread-reply-count")
+    public ResponseEntity<Map<String, Long>> unreadReplyCount() {
+        long count = messageRepository.findByFromUsernameOrderByCreatedAtDesc(currentUsername()).stream()
+                .filter(m -> !m.isUserRead() && m.getReplies() != null && !m.getReplies().isEmpty())
+                .count();
+        return ResponseEntity.ok(Map.of("count", count));
+    }
+
+    @PutMapping("/read-replies")
+    public ResponseEntity<Void> markRepliesRead() {
+        List<Message> messages = messageRepository.findByFromUsernameOrderByCreatedAtDesc(currentUsername());
+        List<Message> changed = messages.stream().filter(m -> !m.isUserRead()).toList();
+        if (!changed.isEmpty()) {
+            changed.forEach(m -> m.setUserRead(true));
+            messageRepository.saveAll(changed);
+        }
+        return ResponseEntity.noContent().build();
+    }
 }

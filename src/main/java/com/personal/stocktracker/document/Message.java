@@ -9,6 +9,8 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @Builder
@@ -28,6 +30,15 @@ public class Message {
 
     // Whether an admin has read the message.
     private boolean read;
+
+    // Whether the user has seen the latest admin reply. True when there is
+    // nothing new for the user to read.
+    @Builder.Default
+    private boolean userRead = true;
+
+    // Admin replies in this thread, oldest first.
+    @Builder.Default
+    private List<MessageReply> replies = new ArrayList<>();
 
     private LocalDateTime createdAt;
 
