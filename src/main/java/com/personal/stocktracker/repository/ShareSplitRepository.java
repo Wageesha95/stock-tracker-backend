@@ -8,6 +8,5 @@ import java.util.List;
 
 @Repository
 public interface ShareSplitRepository extends MongoRepository<ShareSplit, String> {
-    List<ShareSplit> findByUserIdOrderByDateDesc(String userId);
-    List<ShareSplit> findByUserIdAndCompanyCodeOrderByDateAsc(String userId, String companyCode);
+    List<ShareSplit> findAllByOrderByDateDesc();
 }

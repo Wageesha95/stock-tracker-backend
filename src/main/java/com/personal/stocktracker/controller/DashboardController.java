@@ -69,16 +69,24 @@ public class DashboardController {
     }
 
     @GetMapping("/all")
-    public ResponseEntity<Map<String, Object>> getAll() {
+    public ResponseEntity<Map<String, Object>> getAll(@RequestParam(required = false) List<String> brokers) {
         long start = System.currentTimeMillis();
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
 
         long t0 = System.currentTimeMillis();
         List<Transaction> allTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
+        // Optional broker data filter. Empty/absent = all. "__none__" includes manual (no-broker) trades.
+        if (brokers != null && !brokers.isEmpty()) {
+            boolean includeNone = brokers.contains("__none__");
+            allTransactions = allTransactions.stream()
+                    .filter(tx -> (tx.getBrokerId() != null && brokers.contains(tx.getBrokerId()))
+                            || (tx.getBrokerId() == null && includeNone))
+                    .collect(Collectors.toList());
+        }
         log.info("Dashboard [{}] transactions: {}ms ({} records)", username, System.currentTimeMillis() - t0, allTransactions.size());
 
         t0 = System.currentTimeMillis();
-        List<ShareSplit> allSplits = shareSplitRepository.findByUserIdOrderByDateDesc(username);
+        List<ShareSplit> allSplits = shareSplitRepository.findAllByOrderByDateDesc();
         log.info("Dashboard [{}] splits: {}ms ({} records)", username, System.currentTimeMillis() - t0, allSplits.size());
 
         t0 = System.currentTimeMillis();

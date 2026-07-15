@@ -38,5 +38,9 @@ public class Transaction {
 
     private BigDecimal commission;
 
+    // Broker this transaction was traded through, when known (set from the trade
+    // confirmation PDF's broker). Null for manually-entered transactions.
+    private String brokerId;
+
     private LocalDateTime createdAt;
 }

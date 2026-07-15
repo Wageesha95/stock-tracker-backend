@@ -169,5 +169,26 @@ public class DataSeeder implements CommandLineRunner {
                 log.info("Migrated {} PDF uploads to broker Softlogic", noBroker.size());
             }
         }
+
+        // Backfill Transaction.brokerId from the PDF upload records that produced them,
+        // so the broker data filter has something to work with for historical trades.
+        List<Transaction> allTx = transactionRepository.findAll();
+        Map<String, Transaction> txById = allTx.stream()
+                .collect(java.util.stream.Collectors.toMap(Transaction::getId, t -> t, (a, b) -> a));
+        List<Transaction> toTag = new java.util.ArrayList<>();
+        for (PdfUploadRecord rec : pdfUploadRecordRepository.findAll()) {
+            if (rec.getBrokerId() == null || rec.getTransactionIds() == null) continue;
+            for (String txId : rec.getTransactionIds()) {
+                Transaction tx = txById.get(txId);
+                if (tx != null && tx.getBrokerId() == null) {
+                    tx.setBrokerId(rec.getBrokerId());
+                    toTag.add(tx);
+                }
+            }
+        }
+        if (!toTag.isEmpty()) {
+            transactionRepository.saveAll(toTag);
+            log.info("Backfilled brokerId on {} transactions from PDF uploads", toTag.size());
+        }
     }
 }

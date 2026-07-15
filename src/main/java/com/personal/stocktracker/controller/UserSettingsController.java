@@ -36,6 +36,15 @@ public class UserSettingsController {
         return ResponseEntity.ok(userSettingsRepository.save(settings));
     }
 
+    @PutMapping("/data-brokers")
+    public ResponseEntity<UserSettings> updateSelectedDataBrokers(@RequestBody Map<String, List<String>> body) {
+        List<String> brokerIds = body.getOrDefault("selectedDataBrokerIds", List.of());
+        UserSettings settings = userSettingsRepository.findByUserId(currentUsername())
+                .orElse(UserSettings.builder().userId(currentUsername()).build());
+        settings.setSelectedDataBrokerIds(brokerIds);
+        return ResponseEntity.ok(userSettingsRepository.save(settings));
+    }
+
     @PutMapping("/table-columns")
     public ResponseEntity<UserSettings> updateTableColumns(@RequestBody Map<String, List<String>> body) {
         UserSettings settings = userSettingsRepository.findByUserId(currentUsername())

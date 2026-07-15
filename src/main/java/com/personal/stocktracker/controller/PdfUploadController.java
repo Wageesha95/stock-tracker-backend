@@ -157,6 +157,9 @@ public class PdfUploadController {
             txRequest.setCommission(pt.transaction().getCommission());
 
             Transaction saved = transactionService.createTransaction(txRequest, username);
+            // Tag the transaction with its broker so broker-based data filters can use it.
+            saved.setBrokerId(brokerId);
+            saved = transactionRepository.save(saved);
             savedTransactions.add(saved);
             transactionIds.add(saved.getId());
         }

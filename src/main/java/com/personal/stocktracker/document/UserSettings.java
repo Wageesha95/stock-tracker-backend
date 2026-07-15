@@ -29,6 +29,11 @@ public class UserSettings {
     @Builder.Default
     private List<String> selectedBrokerIds = new ArrayList<>();
 
+    // Brokers to filter dashboard / transaction data by. Empty = no filter (show all).
+    // May contain the token "__none__" to include manually-entered (no-broker) transactions.
+    @Builder.Default
+    private List<String> selectedDataBrokerIds = new ArrayList<>();
+
     @Builder.Default
     private Map<String, List<String>> tableColumns = new HashMap<>();
 
