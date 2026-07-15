@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @lombok.extern.slf4j.Slf4j
@@ -53,6 +54,59 @@ public class DividendPayoutController {
     @PostMapping("/api/admin/scrape/dividends")
     public ResponseEntity<Map<String, Object>> scrapeAll() {
         return ResponseEntity.ok(dividendScraperService.scrapeAllCompanies());
+    }
+
+    // ---- Manual admin CRUD for dividend payout (calendar) records ----
+    // Lets an admin fix or add the "to be received" dividends (value / XD date /
+    // payment date / type) that drive the pending-dividend and upcoming views.
+
+    @PostMapping("/api/admin/dividend-payouts")
+    public ResponseEntity<?> createPayout(@RequestBody DividendPayout payout) {
+        if (payout.getCompanyCode() == null || payout.getCompanyCode().isBlank() || payout.getExDividendDate() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "companyCode and exDividendDate are required"));
+        }
+        String code = payout.getCompanyCode().toUpperCase();
+        if (dividendPayoutRepository.existsByCompanyCodeAndExDividendDate(code, payout.getExDividendDate())) {
+            return ResponseEntity.status(409).body(Map.of("error",
+                    "A payout already exists for " + code + " with XD date " + payout.getExDividendDate()));
+        }
+        payout.setId(null);
+        payout.setCompanyCode(code);
+        payout.setScrapedAt(LocalDateTime.now());
+        return ResponseEntity.ok(dividendPayoutRepository.save(payout));
+    }
+
+    @PutMapping("/api/admin/dividend-payouts/{id}")
+    public ResponseEntity<?> updatePayout(@PathVariable String id, @RequestBody DividendPayout body) {
+        DividendPayout existing = dividendPayoutRepository.findById(id).orElse(null);
+        if (existing == null) return ResponseEntity.notFound().build();
+        if (body.getExDividendDate() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "exDividendDate is required"));
+        }
+        String code = body.getCompanyCode() != null && !body.getCompanyCode().isBlank()
+                ? body.getCompanyCode().toUpperCase() : existing.getCompanyCode();
+        // Protect the unique (companyCode, exDividendDate) index from collisions with a different record.
+        Optional<DividendPayout> clash = dividendPayoutRepository.findByCompanyCodeAndExDividendDate(code, body.getExDividendDate());
+        if (clash.isPresent() && !clash.get().getId().equals(id)) {
+            return ResponseEntity.status(409).body(Map.of("error",
+                    "Another payout already exists for " + code + " with XD date " + body.getExDividendDate()));
+        }
+        existing.setCompanyCode(code);
+        existing.setExDividendDate(body.getExDividendDate());
+        existing.setAmountPerShare(body.getAmountPerShare());
+        existing.setPaymentDate(body.getPaymentDate());
+        existing.setAnnouncementDate(body.getAnnouncementDate());
+        existing.setDividendType(body.getDividendType());
+        existing.setPriceOnXdDate(body.getPriceOnXdDate());
+        existing.setPriceOnAnnouncementDate(body.getPriceOnAnnouncementDate());
+        return ResponseEntity.ok(dividendPayoutRepository.save(existing));
+    }
+
+    @DeleteMapping("/api/admin/dividend-payouts/{id}")
+    public ResponseEntity<?> deletePayout(@PathVariable String id) {
+        if (!dividendPayoutRepository.existsById(id)) return ResponseEntity.notFound().build();
+        dividendPayoutRepository.deleteById(id);
+        return ResponseEntity.ok(Map.of("deleted", id));
     }
 
     @GetMapping("/api/dividend-payouts")
