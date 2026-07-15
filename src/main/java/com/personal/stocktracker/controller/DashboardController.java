@@ -75,6 +75,10 @@ public class DashboardController {
 
         long t0 = System.currentTimeMillis();
         List<Transaction> allTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
+        // Disabled transactions (e.g. converted ".R" rights) never count in calculations.
+        allTransactions = allTransactions.stream()
+                .filter(tx -> tx.getDisabled() == null || !tx.getDisabled())
+                .collect(Collectors.toList());
         // Optional broker data filter. Empty/absent = all. "__none__" includes manual (no-broker) trades.
         if (brokers != null && !brokers.isEmpty()) {
             boolean includeNone = brokers.contains("__none__");

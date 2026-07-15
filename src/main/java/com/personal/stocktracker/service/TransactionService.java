@@ -53,6 +53,15 @@ public class TransactionService {
         return transactionRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode);
     }
 
+    // Enable/disable every transaction a user holds under a company code (e.g. a
+    // ".R" rights holding). Disabled transactions are excluded from calculations.
+    public int setDisabledByCompany(String userId, String companyCode, boolean disabled) {
+        List<Transaction> txns = transactionRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode.toUpperCase());
+        txns.forEach(t -> t.setDisabled(disabled));
+        transactionRepository.saveAll(txns);
+        return txns.size();
+    }
+
     public void deleteTransaction(String id, String userId) {
         Transaction transaction = transactionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Transaction not found with id: " + id));

@@ -11,6 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/transactions")
@@ -36,6 +37,13 @@ public class TransactionController {
     @GetMapping("/company/{code}")
     public ResponseEntity<List<Transaction>> getTransactionsByCompany(@PathVariable String code) {
         return ResponseEntity.ok(transactionService.getTransactionsByCompany(currentUsername(), code.toUpperCase()));
+    }
+
+    @PutMapping("/company/{code}/disabled")
+    public ResponseEntity<Map<String, Object>> setDisabledByCompany(
+            @PathVariable String code, @RequestParam boolean value) {
+        int count = transactionService.setDisabledByCompany(currentUsername(), code, value);
+        return ResponseEntity.ok(Map.of("companyCode", code.toUpperCase(), "disabled", value, "updated", count));
     }
 
     @DeleteMapping("/{id}")

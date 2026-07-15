@@ -30,6 +30,49 @@ public class AdminController {
     private final DividendRepository dividendRepository;
     private final MongoTemplate mongoTemplate;
 
+    // ---- Rights (.R) records per user: list + enable/disable ----
+    @GetMapping("/rights-records")
+    public ResponseEntity<List<Map<String, Object>>> getRightsRecords() {
+        Map<String, List<Transaction>> groups = new LinkedHashMap<>();
+        for (Transaction t : transactionRepository.findAll()) {
+            if (t.getCompanyCode() != null && t.getCompanyCode().contains(".R")) {
+                groups.computeIfAbsent(t.getUserId() + "|" + t.getCompanyCode(), k -> new ArrayList<>()).add(t);
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map.Entry<String, List<Transaction>> e : groups.entrySet()) {
+            List<Transaction> txns = e.getValue();
+            String[] parts = e.getKey().split("\\|", 2);
+            int shares = 0;
+            for (Transaction t : txns) {
+                int c = t.getCount() != null ? t.getCount() : 0;
+                shares += (t.getType() == TransactionType.SELL) ? -c : c;
+            }
+            boolean disabled = txns.stream().allMatch(t -> Boolean.TRUE.equals(t.getDisabled()));
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userId", parts[0]);
+            m.put("companyCode", parts.length > 1 ? parts[1] : "");
+            m.put("shares", shares);
+            m.put("disabled", disabled);
+            m.put("txCount", txns.size());
+            out.add(m);
+        }
+        out.sort((a, b) -> {
+            int c = ((String) a.get("userId")).compareTo((String) b.get("userId"));
+            return c != 0 ? c : ((String) a.get("companyCode")).compareTo((String) b.get("companyCode"));
+        });
+        return ResponseEntity.ok(out);
+    }
+
+    @PutMapping("/rights-records/disabled")
+    public ResponseEntity<Map<String, Object>> setRightsDisabled(
+            @RequestParam String userId, @RequestParam String code, @RequestParam boolean value) {
+        List<Transaction> txns = transactionRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, code.toUpperCase());
+        txns.forEach(t -> t.setDisabled(value));
+        transactionRepository.saveAll(txns);
+        return ResponseEntity.ok(Map.of("userId", userId, "companyCode", code.toUpperCase(), "disabled", value, "updated", txns.size()));
+    }
+
     @GetMapping("/system-stats")
     public ResponseEntity<Map<String, Object>> getSystemStats() {
         Map<String, Object> stats = new LinkedHashMap<>();

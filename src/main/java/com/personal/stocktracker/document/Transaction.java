@@ -42,5 +42,9 @@ public class Transaction {
     // confirmation PDF's broker). Null for manually-entered transactions.
     private String brokerId;
 
+    // When true, the transaction is excluded from all portfolio/gain calculations.
+    // Used to retire a ".R" rights holding once it has been converted to shares.
+    private Boolean disabled;
+
     private LocalDateTime createdAt;
 }
