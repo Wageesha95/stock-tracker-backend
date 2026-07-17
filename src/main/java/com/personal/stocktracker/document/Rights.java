@@ -33,6 +33,8 @@ public class Rights {
 
     private BigDecimal price;
 
+    private String brokerId;
+
     private String transactionId;
 
     private LocalDateTime createdAt;

@@ -43,6 +43,7 @@ public class IpoController {
         String dateStr = (String) body.get("date");
         int count = ((Number) body.get("count")).intValue();
         BigDecimal price = new BigDecimal(body.get("price").toString());
+        String brokerId = (String) body.get("brokerId");
 
         if (!companyRepository.existsByCode(companyCode)) {
             companyRepository.save(Company.builder()
@@ -58,6 +59,7 @@ public class IpoController {
                 .count(count)
                 .price(price)
                 .commission(BigDecimal.ZERO)
+                .brokerId(brokerId)
                 .createdAt(LocalDateTime.now())
                 .build();
         transaction = transactionRepository.save(transaction);
@@ -68,6 +70,7 @@ public class IpoController {
                 .date(java.time.LocalDate.parse(dateStr))
                 .count(count)
                 .price(price)
+                .brokerId(brokerId)
                 .transactionId(transaction.getId())
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -87,9 +90,12 @@ public class IpoController {
         int count = ((Number) body.get("count")).intValue();
         BigDecimal price = new BigDecimal(body.get("price").toString());
 
+        String brokerId = (String) body.get("brokerId");
+
         ipo.setDate(java.time.LocalDate.parse(dateStr));
         ipo.setCount(count);
         ipo.setPrice(price);
+        ipo.setBrokerId(brokerId);
         ipoRepository.save(ipo);
 
         if (ipo.getTransactionId() != null) {
@@ -97,6 +103,7 @@ public class IpoController {
                 tx.setDate(ipo.getDate());
                 tx.setCount(count);
                 tx.setPrice(price);
+                tx.setBrokerId(brokerId);
                 transactionRepository.save(tx);
             });
         }

@@ -2,12 +2,16 @@ package com.personal.stocktracker.config;
 
 import com.personal.stocktracker.document.Broker;
 import com.personal.stocktracker.document.Dividend;
+import com.personal.stocktracker.document.Ipo;
 import com.personal.stocktracker.document.PdfUploadRecord;
+import com.personal.stocktracker.document.Rights;
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.document.User;
 import com.personal.stocktracker.repository.BrokerRepository;
 import com.personal.stocktracker.repository.DividendRepository;
+import com.personal.stocktracker.repository.IpoRepository;
 import com.personal.stocktracker.repository.PdfUploadRecordRepository;
+import com.personal.stocktracker.repository.RightsRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
 import com.personal.stocktracker.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +37,8 @@ public class DataSeeder implements CommandLineRunner {
     private final DividendRepository dividendRepository;
     private final PdfUploadRecordRepository pdfUploadRecordRepository;
     private final BrokerRepository brokerRepository;
+    private final RightsRepository rightsRepository;
+    private final IpoRepository ipoRepository;
     private final MongoTemplate mongoTemplate;
 
     @Override
@@ -207,6 +213,45 @@ public class DataSeeder implements CommandLineRunner {
                 log.info("Migrated {} existing dividends to broker Softlogic (one-time)", noBrokerDiv.size());
             }
             markMigrationDone(DIV_BROKER_BACKFILL);
+        }
+
+        // ONE-TIME backfill: attribute existing rights & IPO records (and their linked
+        // transactions) to Softlogic, so historical corporate-action holdings survive a
+        // broker data filter. Guarded so it never re-runs.
+        final String RI_BROKER_BACKFILL = "rights-ipo-broker-softlogic-backfill";
+        if (softlogic.isPresent() && !migrationDone(RI_BROKER_BACKFILL)) {
+            String sid = softlogic.get().getId();
+            List<Transaction> tagged = new java.util.ArrayList<>();
+
+            List<Rights> rNoBroker = rightsRepository.findAll().stream()
+                    .filter(r -> r.getBrokerId() == null)
+                    .toList();
+            rNoBroker.forEach(r -> {
+                r.setBrokerId(sid);
+                if (r.getTransactionId() != null) {
+                    transactionRepository.findById(r.getTransactionId()).ifPresent(tx -> {
+                        if (tx.getBrokerId() == null) { tx.setBrokerId(sid); tagged.add(tx); }
+                    });
+                }
+            });
+            if (!rNoBroker.isEmpty()) rightsRepository.saveAll(rNoBroker);
+
+            List<Ipo> iNoBroker = ipoRepository.findAll().stream()
+                    .filter(i -> i.getBrokerId() == null)
+                    .toList();
+            iNoBroker.forEach(i -> {
+                i.setBrokerId(sid);
+                if (i.getTransactionId() != null) {
+                    transactionRepository.findById(i.getTransactionId()).ifPresent(tx -> {
+                        if (tx.getBrokerId() == null) { tx.setBrokerId(sid); tagged.add(tx); }
+                    });
+                }
+            });
+            if (!iNoBroker.isEmpty()) ipoRepository.saveAll(iNoBroker);
+
+            if (!tagged.isEmpty()) transactionRepository.saveAll(tagged);
+            log.info("Migrated {} rights and {} ipos to broker Softlogic (one-time)", rNoBroker.size(), iNoBroker.size());
+            markMigrationDone(RI_BROKER_BACKFILL);
         }
     }
 

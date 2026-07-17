@@ -45,6 +45,7 @@ public class RightsController {
         String dateStr = (String) body.get("date");
         int count = ((Number) body.get("count")).intValue();
         BigDecimal price = new BigDecimal(body.get("price").toString());
+        String brokerId = (String) body.get("brokerId");
 
         // Auto-create company if needed
         if (!companyRepository.existsByCode(companyCode)) {
@@ -62,6 +63,7 @@ public class RightsController {
                 .count(count)
                 .price(price)
                 .commission(BigDecimal.ZERO)
+                .brokerId(brokerId)
                 .createdAt(LocalDateTime.now())
                 .build();
         transaction = transactionRepository.save(transaction);
@@ -73,6 +75,7 @@ public class RightsController {
                 .date(java.time.LocalDate.parse(dateStr))
                 .count(count)
                 .price(price)
+                .brokerId(brokerId)
                 .transactionId(transaction.getId())
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -92,9 +95,12 @@ public class RightsController {
         int count = ((Number) body.get("count")).intValue();
         BigDecimal price = new BigDecimal(body.get("price").toString());
 
+        String brokerId = (String) body.get("brokerId");
+
         rights.setDate(java.time.LocalDate.parse(dateStr));
         rights.setCount(count);
         rights.setPrice(price);
+        rights.setBrokerId(brokerId);
         rightsRepository.save(rights);
 
         // Update linked transaction
@@ -103,6 +109,7 @@ public class RightsController {
                 tx.setDate(rights.getDate());
                 tx.setCount(count);
                 tx.setPrice(price);
+                tx.setBrokerId(brokerId);
                 transactionRepository.save(tx);
             });
         }
