@@ -31,7 +31,11 @@ public class DividendService {
     public Dividend createDividend(DividendRequest request, String userId) {
         String code = request.getCompanyCode().toUpperCase();
 
-        if (request.getXdDate() != null && dividendRepository.existsByUserIdAndCompanyCodeAndTypeAndXdDate(userId, code, request.getType(), request.getXdDate())) {
+        // Uniqueness is per broker: the same company/XD/type may pay out across
+        // multiple brokers, and each is recorded separately.
+        if (request.getXdDate() != null
+                && dividendRepository.existsByUserIdAndCompanyCodeAndTypeAndXdDateAndBrokerId(
+                        userId, code, request.getType(), request.getXdDate(), request.getBrokerId())) {
             throw new RuntimeException("Dividend already exists for " + code + " with XD date " + request.getXdDate() + " and type " + request.getType());
         }
 
@@ -78,6 +82,7 @@ public class DividendService {
                 .scripShares(request.getType() == DividendType.SCRIP ? request.getScripShares() : 0)
                 .totalAmount(totalAmount)
                 .taxed(request.getTaxed() != null ? request.getTaxed() : true)
+                .brokerId(request.getBrokerId())
                 .transactionId(transactionId)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -109,6 +114,7 @@ public class DividendService {
             dividend.setTotalAmount(request.getAmount().multiply(BigDecimal.valueOf(request.getShares())));
         }
         dividend.setTaxed(request.getTaxed() != null ? request.getTaxed() : true);
+        dividend.setBrokerId(request.getBrokerId());
 
         // Handle linked transaction for SCRIP
         if (request.getType() == DividendType.SCRIP && request.getScripShares() != null && request.getScripShares() > 0) {

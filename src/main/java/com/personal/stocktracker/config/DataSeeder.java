@@ -190,5 +190,36 @@ public class DataSeeder implements CommandLineRunner {
             transactionRepository.saveAll(toTag);
             log.info("Backfilled brokerId on {} transactions from PDF uploads", toTag.size());
         }
+
+        // ONE-TIME backfill: attribute every existing dividend to Softlogic, so
+        // historical dividends line up with the (Softlogic-backfilled) historical
+        // trades. Guarded by a persisted flag so it never runs again — otherwise a
+        // dividend legitimately saved with no broker later would be force-reassigned
+        // to Softlogic on the next restart.
+        final String DIV_BROKER_BACKFILL = "dividend-broker-softlogic-backfill";
+        if (softlogic.isPresent() && !migrationDone(DIV_BROKER_BACKFILL)) {
+            List<Dividend> noBrokerDiv = dividendRepository.findAll().stream()
+                    .filter(d -> d.getBrokerId() == null)
+                    .toList();
+            if (!noBrokerDiv.isEmpty()) {
+                noBrokerDiv.forEach(d -> d.setBrokerId(softlogic.get().getId()));
+                dividendRepository.saveAll(noBrokerDiv);
+                log.info("Migrated {} existing dividends to broker Softlogic (one-time)", noBrokerDiv.size());
+            }
+            markMigrationDone(DIV_BROKER_BACKFILL);
+        }
+    }
+
+    private static final String MIGRATIONS_COLLECTION = "app_migrations";
+
+    private boolean migrationDone(String key) {
+        return mongoTemplate.getCollection(MIGRATIONS_COLLECTION)
+                .countDocuments(new org.bson.Document("_id", key)) > 0;
+    }
+
+    private void markMigrationDone(String key) {
+        mongoTemplate.getCollection(MIGRATIONS_COLLECTION)
+                .insertOne(new org.bson.Document("_id", key)
+                        .append("ranAt", LocalDateTime.now().toString()));
     }
 }

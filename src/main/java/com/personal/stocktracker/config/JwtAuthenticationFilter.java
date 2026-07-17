@@ -23,6 +23,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Set<String> READ_ONLY_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
+    // Paths a read-only user is still allowed to write to. These hold per-user view
+    // preferences (broker filter, table columns, TTM weeks) — not portfolio data —
+    // so changing them in read mode is safe.
+    private static final String SETTINGS_PATH_PREFIX = "/api/settings";
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
@@ -36,8 +41,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String role = jwtUtil.getRole(token);
                 boolean readMode = jwtUtil.isReadMode(token);
 
-                // Block write operations for read mode tokens
-                if (readMode && !READ_ONLY_METHODS.contains(request.getMethod().toUpperCase())) {
+                // Block write operations for read mode tokens, except per-user
+                // filter/view preferences under /api/settings.
+                boolean isSettingsWrite = request.getRequestURI() != null
+                        && request.getRequestURI().startsWith(SETTINGS_PATH_PREFIX);
+                if (readMode
+                        && !READ_ONLY_METHODS.contains(request.getMethod().toUpperCase())
+                        && !isSettingsWrite) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json");
                     response.getWriter().write("{\"error\": \"Read-only mode: write operations are not allowed\"}");

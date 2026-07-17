@@ -36,4 +36,6 @@ public class DividendRequest {
     private BigDecimal totalAmount;
 
     private Boolean taxed;
+
+    private String brokerId;
 }

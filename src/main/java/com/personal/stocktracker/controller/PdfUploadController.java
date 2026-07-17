@@ -184,6 +184,50 @@ public class PdfUploadController {
         return ResponseEntity.ok(pdfUploadRecordRepository.findByUserIdOrderByUploadedAtDesc(currentUsername()));
     }
 
+    @PutMapping("/uploads/{id}")
+    public ResponseEntity<?> updateUpload(@PathVariable String id, @RequestBody Map<String, String> body) {
+        String username = currentUsername();
+        PdfUploadRecord record = pdfUploadRecordRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Upload record not found: " + id));
+        if (!username.equals(record.getUserId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access denied"));
+        }
+
+        String tradeDateStr = body.get("tradeDate");
+        String brokerId = body.get("brokerId");
+        if (tradeDateStr == null || tradeDateStr.isBlank() || brokerId == null || brokerId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "tradeDate and brokerId are required"));
+        }
+
+        LocalDate tradeDate = LocalDate.parse(tradeDateStr);
+        if (!brokerRepository.existsById(brokerId)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid broker"));
+        }
+
+        // Uniqueness: no other upload for the same date + broker (matches the unique index).
+        var clash = pdfUploadRecordRepository.findByUserIdAndTradeDateAndBrokerId(username, tradeDate, brokerId);
+        if (clash.isPresent() && !clash.get().getId().equals(id)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "A trade confirmation for this date and broker already exists"));
+        }
+
+        // Cascade the new date + broker onto every linked transaction.
+        if (record.getTransactionIds() != null && !record.getTransactionIds().isEmpty()) {
+            Iterable<Transaction> txns = transactionRepository.findAllById(record.getTransactionIds());
+            for (Transaction tx : txns) {
+                tx.setDate(tradeDate);
+                tx.setBrokerId(brokerId);
+            }
+            transactionRepository.saveAll(txns);
+        }
+
+        record.setTradeDate(tradeDate);
+        record.setBrokerId(brokerId);
+        pdfUploadRecordRepository.save(record);
+
+        return ResponseEntity.ok(record);
+    }
+
     @DeleteMapping("/uploads/{id}")
     public ResponseEntity<Void> deleteUpload(@PathVariable String id) {
         PdfUploadRecord record = pdfUploadRecordRepository.findById(id)
