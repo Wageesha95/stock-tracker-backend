@@ -43,8 +43,15 @@ public class Transaction {
     private String brokerId;
 
     // When true, the transaction is excluded from all portfolio/gain calculations.
-    // Used to retire a ".R" rights holding once it has been converted to shares.
+    // Used to retire a ".R" rights holding (converted to shares, or lapsed/wasted).
     private Boolean disabled;
+
+    // Distinguishes the two reasons a ".R" holding is disabled:
+    //  - converted == true  → exercised into ".N" shares; cost lives in those shares,
+    //                          so it is NOT a loss.
+    //  - converted != true  → the right lapsed/was wasted; the money paid for it is a
+    //                          realized loss.
+    private Boolean converted;
 
     private LocalDateTime createdAt;
 }

@@ -75,18 +75,25 @@ public class DashboardController {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
 
         long t0 = System.currentTimeMillis();
-        List<Transaction> allTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
-        // Disabled transactions (e.g. converted ".R" rights) never count in calculations.
-        allTransactions = allTransactions.stream()
+        List<Transaction> rawTransactions = transactionRepository.findByUserIdOrderByDateDesc(username);
+        // Wasted rights: a disabled ".R" holding that was NOT converted to shares. The
+        // money paid for the lapsed right is a realized loss (handled separately below).
+        List<Transaction> wastedTransactions = rawTransactions.stream()
+                .filter(tx -> Boolean.TRUE.equals(tx.getDisabled()) && !Boolean.TRUE.equals(tx.getConverted()))
+                .collect(Collectors.toList());
+        // Disabled transactions (converted ".R" rights or wasted ones) never count in the
+        // live portfolio/gain calculations.
+        List<Transaction> allTransactions = rawTransactions.stream()
                 .filter(tx -> tx.getDisabled() == null || !tx.getDisabled())
                 .collect(Collectors.toList());
         // Optional broker data filter. Empty/absent = all. "__none__" includes manual (no-broker) trades.
         if (brokers != null && !brokers.isEmpty()) {
             boolean includeNone = brokers.contains("__none__");
-            allTransactions = allTransactions.stream()
-                    .filter(tx -> (tx.getBrokerId() != null && brokers.contains(tx.getBrokerId()))
-                            || (tx.getBrokerId() == null && includeNone))
-                    .collect(Collectors.toList());
+            java.util.function.Predicate<Transaction> brokerMatch = tx ->
+                    (tx.getBrokerId() != null && brokers.contains(tx.getBrokerId()))
+                    || (tx.getBrokerId() == null && includeNone);
+            allTransactions = allTransactions.stream().filter(brokerMatch).collect(Collectors.toList());
+            wastedTransactions = wastedTransactions.stream().filter(brokerMatch).collect(Collectors.toList());
         }
         log.info("Dashboard [{}] transactions: {}ms ({} records)", username, System.currentTimeMillis() - t0, allTransactions.size());
 
@@ -248,6 +255,47 @@ public class DashboardController {
                 }
             }
         }
+        // Wasted rights: for each lapsed (disabled, non-converted) ".R" holding, the net
+        // money paid for the rights that were never exercised is booked as a realized loss.
+        Map<String, List<Transaction>> wastedByCode = wastedTransactions.stream()
+                .collect(Collectors.groupingBy(Transaction::getCompanyCode));
+        for (Map.Entry<String, List<Transaction>> entry : wastedByCode.entrySet()) {
+            String code = entry.getKey();
+            List<Transaction> txns = new ArrayList<>(entry.getValue());
+            txns.sort(TransactionComparators.BY_DATE_BUYS_FIRST);
+
+            int shares = 0, bought = 0;
+            BigDecimal cost = BigDecimal.ZERO;
+            LocalDate lastDate = null;
+            for (Transaction tx : txns) {
+                if (tx.getType() == TransactionType.SELL) {
+                    shares -= tx.getCount();
+                } else {
+                    shares += tx.getCount();
+                    bought += tx.getCount();
+                    cost = cost.add(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())).add(tx.getCommission()));
+                }
+                if (lastDate == null || tx.getDate().isAfter(lastDate)) lastDate = tx.getDate();
+            }
+            if (shares <= 0) continue; // fully sold on the market — nothing lapsed
+
+            BigDecimal avg = bought > 0 ? cost.divide(BigDecimal.valueOf(bought), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+            BigDecimal lossBasis = avg.multiply(BigDecimal.valueOf(shares)).setScale(4, RoundingMode.HALF_UP);
+            Company comp = companyMap.get(code);
+            realizedItems.add(RealizedGainItem.builder()
+                    .companyCode(code)
+                    .companyName(comp != null ? comp.getName() : code)
+                    .sellDate(lastDate != null ? lastDate : today)
+                    .sharesSold(shares)
+                    .avgBuyPrice(avg)
+                    .sellPrice(BigDecimal.ZERO)
+                    .commission(BigDecimal.ZERO)
+                    .realizedGain(lossBasis.negate())
+                    .gainPercent(BigDecimal.valueOf(-100))
+                    .note("Purchased the right but didn't convert to a share")
+                    .build());
+        }
+
         realizedItems.sort((a, b) -> b.getSellDate().compareTo(a.getSellDate()));
         log.info("Dashboard [{}] realized calc: {}ms ({} items)", username, System.currentTimeMillis() - t0, realizedItems.size());
 

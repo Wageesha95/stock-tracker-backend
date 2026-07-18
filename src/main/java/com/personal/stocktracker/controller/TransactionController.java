@@ -41,9 +41,10 @@ public class TransactionController {
 
     @PutMapping("/company/{code}/disabled")
     public ResponseEntity<Map<String, Object>> setDisabledByCompany(
-            @PathVariable String code, @RequestParam boolean value) {
-        int count = transactionService.setDisabledByCompany(currentUsername(), code, value);
-        return ResponseEntity.ok(Map.of("companyCode", code.toUpperCase(), "disabled", value, "updated", count));
+            @PathVariable String code, @RequestParam boolean value,
+            @RequestParam(required = false, defaultValue = "false") boolean converted) {
+        int count = transactionService.setDisabledByCompany(currentUsername(), code, value, converted);
+        return ResponseEntity.ok(Map.of("companyCode", code.toUpperCase(), "disabled", value, "converted", value && converted, "updated", count));
     }
 
     @DeleteMapping("/{id}")

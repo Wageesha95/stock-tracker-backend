@@ -55,9 +55,13 @@ public class TransactionService {
 
     // Enable/disable every transaction a user holds under a company code (e.g. a
     // ".R" rights holding). Disabled transactions are excluded from calculations.
-    public int setDisabledByCompany(String userId, String companyCode, boolean disabled) {
+    public int setDisabledByCompany(String userId, String companyCode, boolean disabled, boolean converted) {
         List<Transaction> txns = transactionRepository.findByUserIdAndCompanyCodeOrderByDateDesc(userId, companyCode.toUpperCase());
-        txns.forEach(t -> t.setDisabled(disabled));
+        txns.forEach(t -> {
+            t.setDisabled(disabled);
+            // Converted only applies while disabled; re-enabling clears it.
+            t.setConverted(disabled && converted);
+        });
         transactionRepository.saveAll(txns);
         return txns.size();
     }

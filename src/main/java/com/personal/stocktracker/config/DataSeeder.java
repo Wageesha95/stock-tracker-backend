@@ -253,6 +253,28 @@ public class DataSeeder implements CommandLineRunner {
             log.info("Migrated {} rights and {} ipos to broker Softlogic (one-time)", rNoBroker.size(), iNoBroker.size());
             markMigrationDone(RI_BROKER_BACKFILL);
         }
+
+        // ONE-TIME: previously, converting a ".R" right only "disabled" it. Now a disabled
+        // ".R" is treated as WASTED (a realized loss) unless flagged converted. Mark every
+        // already-disabled ".R" whose base ".N" has a rights issue as converted, so historical
+        // conversions are not mistaken for lapsed rights and booked as losses.
+        final String RIGHTS_CONVERTED_FLAG = "rights-converted-flag-backfill";
+        if (!migrationDone(RIGHTS_CONVERTED_FLAG)) {
+            java.util.Set<String> nWithRights = rightsRepository.findAll().stream()
+                    .map(Rights::getCompanyCode)
+                    .collect(java.util.stream.Collectors.toSet());
+            List<Transaction> convertedR = transactionRepository.findAll().stream()
+                    .filter(t -> t.getCompanyCode() != null && t.getCompanyCode().contains(".R"))
+                    .filter(t -> Boolean.TRUE.equals(t.getDisabled()) && !Boolean.TRUE.equals(t.getConverted()))
+                    .filter(t -> nWithRights.contains(t.getCompanyCode().replace(".R", ".N")))
+                    .toList();
+            if (!convertedR.isEmpty()) {
+                convertedR.forEach(t -> t.setConverted(true));
+                transactionRepository.saveAll(convertedR);
+                log.info("Marked {} disabled .R transactions as converted (one-time)", convertedR.size());
+            }
+            markMigrationDone(RIGHTS_CONVERTED_FLAG);
+        }
     }
 
     private static final String MIGRATIONS_COLLECTION = "app_migrations";

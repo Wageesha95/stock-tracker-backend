@@ -24,4 +24,6 @@ public class RealizedGainItem {
     private BigDecimal commission;
     private BigDecimal realizedGain;
     private BigDecimal gainPercent;
+    // Optional explanation, e.g. for a lapsed rights loss. Null for ordinary sells.
+    private String note;
 }
