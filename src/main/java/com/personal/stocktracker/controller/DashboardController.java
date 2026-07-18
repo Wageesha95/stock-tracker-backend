@@ -140,8 +140,10 @@ public class DashboardController {
                 changePercent = change.divide(prevClose, 4, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
             } else {
-                change = md != null ? md.getChange() : BigDecimal.ZERO;
-                changePercent = md != null ? md.getChangePercent() : BigDecimal.ZERO;
+                // CSE-sourced rows may have null change/change% (no previous close) — default to ZERO
+                // so the multiply/setScale below never NPEs.
+                change = md != null && md.getChange() != null ? md.getChange() : BigDecimal.ZERO;
+                changePercent = md != null && md.getChangePercent() != null ? md.getChangePercent() : BigDecimal.ZERO;
             }
 
             // FIFO running calculation
