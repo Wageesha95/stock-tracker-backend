@@ -494,6 +494,11 @@ public class MarketDataScraperService {
 
                 BigDecimal open = toBigDecimal(bar.get("open"));
                 MarketData existing = existingByDate.get(date);
+                if (existing != null && "CSE".equals(existing.getSource())) {
+                    // Never overwrite a row sourced from the CSE API with scraped data.
+                    skippedCount++;
+                    continue;
+                }
                 if (existing != null) {
                     // Only write back when a value actually changed — skip otherwise so we don't
                     // rewrite (and re-stamp) untouched history on every re-scrape.
@@ -531,6 +536,7 @@ public class MarketDataScraperService {
                             .volume(volume)
                             .change(change)
                             .changePercent(changePct)
+                            .source("TRADINGVIEW")
                             .tradeDate(date)
                             .updatedAt(now)
                             .build());
@@ -564,6 +570,10 @@ public class MarketDataScraperService {
         BigDecimal volume = toBigDecimal(bar.get("volume"));
 
         Optional<MarketData> existing = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date);
+        if (existing.isPresent() && "CSE".equals(existing.get().getSource())) {
+            // Never overwrite a CSE-sourced row with scraped data.
+            return Map.of("date", date.toString(), "status", "skipped-cse");
+        }
         boolean isNew;
         if (existing.isPresent()) {
             MarketData md = existing.get();
@@ -592,6 +602,7 @@ public class MarketDataScraperService {
                     .volume(volume)
                     .change(change)
                     .changePercent(changePct)
+                    .source("TRADINGVIEW")
                     .tradeDate(date)
                     .updatedAt(LocalDateTime.now())
                     .build());

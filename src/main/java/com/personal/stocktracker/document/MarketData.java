@@ -41,6 +41,10 @@ public class MarketData {
 
     private BigDecimal volume;
 
+    // Which fetcher wrote this row: "CSE" (HTTP API) or "TRADINGVIEW" (Selenium), null for
+    // legacy/CSV. The Selenium scraper never overwrites a row sourced from "CSE".
+    private String source;
+
     private LocalDate tradeDate;
 
     private LocalDateTime updatedAt;

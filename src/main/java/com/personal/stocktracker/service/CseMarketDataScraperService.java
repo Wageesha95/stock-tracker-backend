@@ -169,6 +169,7 @@ public class CseMarketDataScraperService {
         md.setVolume(bd(info, "tdyShareVolume"));
         md.setChange(change);
         md.setChangePercent(changePercent);
+        md.setSource("CSE");
         md.setUpdatedAt(LocalDateTime.now());
         marketDataRepository.save(md);
         return true;
