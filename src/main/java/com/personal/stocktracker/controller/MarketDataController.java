@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
 import java.time.LocalDate;
@@ -286,21 +287,17 @@ public class MarketDataController {
     public ResponseEntity<Map<String, Object>> deleteByDateRange(
             @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to) {
-        long deleted;
-        String description;
-        if (from != null && to != null) {
-            // Inclusive of both boundary dates (plain Between is exclusive in Mongo).
-            deleted = marketDataRepository.deleteByTradeDateGreaterThanEqualAndTradeDateLessThanEqual(from, to);
-            description = from + " to " + to;
-        } else if (from != null) {
-            deleted = marketDataRepository.deleteByTradeDateGreaterThanEqual(from);
-            description = "from " + from;
-        } else if (to != null) {
-            deleted = marketDataRepository.deleteByTradeDateLessThanEqual(to);
-            description = "up to " + to;
-        } else {
+        if (from == null && to == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Provide at least 'from' or 'to' parameter"));
         }
+        // Inclusive range delete via MongoTemplate — derived "Between" is exclusive in Mongo,
+        // and this avoids any derived-query edge cases.
+        Criteria c = Criteria.where("tradeDate");
+        if (from != null) c = c.gte(from);
+        if (to != null) c = c.lte(to);
+        long deleted = mongoTemplate.remove(new Query(c), MarketData.class).getDeletedCount();
+        String description = from != null && to != null ? (from + " to " + to)
+                : from != null ? ("from " + from) : ("up to " + to);
         return ResponseEntity.ok(Map.of("deletedCount", deleted, "range", description));
     }
 }
