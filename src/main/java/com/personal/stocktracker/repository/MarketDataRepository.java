@@ -15,6 +15,10 @@ public interface MarketDataRepository extends MongoRepository<MarketData, String
 
     Optional<MarketData> findByCompanyCodeAndTradeDate(String companyCode, LocalDate tradeDate);
 
+    // Most recent stored row for a company strictly before the given date — the "previous
+    // market day" we already have data for, used to compute day-over-day change.
+    Optional<MarketData> findFirstByCompanyCodeAndTradeDateBeforeOrderByTradeDateDesc(String companyCode, LocalDate tradeDate);
+
     List<MarketData> findByCompanyCodeOrderByTradeDateDesc(String companyCode);
 
     List<MarketData> findByTradeDate(LocalDate tradeDate);

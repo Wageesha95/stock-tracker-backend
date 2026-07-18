@@ -205,11 +205,16 @@ public class CseMarketDataScraperService {
         if (lastTrade == null) lastTrade = bd(info, "closingPrice");
         if (lastTrade == null) return false; // nothing traded / no price — skip
 
-        BigDecimal prevClose = bd(info, "previousClose");
+        // Day-over-day change vs the previous market day we already have data for; fall back to
+        // CSE's reported previousClose when there's no earlier stored row.
+        BigDecimal basis = marketDataRepository
+                .findFirstByCompanyCodeAndTradeDateBeforeOrderByTradeDateDesc(companyCode, tradeDate)
+                .map(MarketData::getLastTrade)
+                .orElse(bd(info, "previousClose"));
         BigDecimal change = null, changePercent = null;
-        if (prevClose != null && prevClose.signum() != 0) {
-            change = lastTrade.subtract(prevClose);
-            changePercent = change.divide(prevClose, 4, RoundingMode.HALF_UP)
+        if (basis != null && basis.signum() != 0) {
+            change = lastTrade.subtract(basis);
+            changePercent = change.divide(basis, 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
         }
 
