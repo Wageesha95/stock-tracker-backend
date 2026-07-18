@@ -3,8 +3,10 @@ package com.personal.stocktracker.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.personal.stocktracker.document.Company;
+import com.personal.stocktracker.document.CseScrapeStatus;
 import com.personal.stocktracker.document.MarketData;
 import com.personal.stocktracker.repository.CompanyRepository;
+import com.personal.stocktracker.repository.CseScrapeStatusRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +47,7 @@ public class CseMarketDataScraperService {
 
     private final MarketDataRepository marketDataRepository;
     private final CompanyRepository companyRepository;
+    private final CseScrapeStatusRepository cseScrapeStatusRepository;
 
     private static final String CSE_INFO_URL = "https://www.cse.lk/api/companyInfoSummery";
     private static final String CSE_MARKET_SUMMARY_URL = "https://www.cse.lk/api/marketSummery";
@@ -57,6 +60,25 @@ public class CseMarketDataScraperService {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .build();
+
+    /** Persist the outcome of a run (server-stamped time) for the admin panel status display. */
+    public CseScrapeStatus recordRun(int total, int saved, int failed, String tradeDate) {
+        String status = failed == 0 ? "success" : (saved > 0 ? "partial" : "failed");
+        CseScrapeStatus s = CseScrapeStatus.builder()
+                .id(CseScrapeStatus.SINGLETON_ID)
+                .lastRunAt(LocalDateTime.now())
+                .tradeDate(tradeDate)
+                .total(total)
+                .saved(saved)
+                .failed(failed)
+                .status(status)
+                .build();
+        return cseScrapeStatusRepository.save(s);
+    }
+
+    public CseScrapeStatus getStatus() {
+        return cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID).orElse(null);
+    }
 
     /**
      * The last actual trading day per CSE (its marketSummery.tradeDate), so data fetched
@@ -114,6 +136,7 @@ public class CseMarketDataScraperService {
             }
         }
 
+        recordRun(companies.size(), succeeded, failed, tradeDate.toString());
         log.info("CSE market-data scrape complete: {} saved, {} failed of {}", succeeded, failed, companies.size());
         return Map.of(
                 "source", "cse.lk",
