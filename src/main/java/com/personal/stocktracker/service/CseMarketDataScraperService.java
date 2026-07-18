@@ -96,6 +96,17 @@ public class CseMarketDataScraperService {
         );
     }
 
+    /** Fetch + upsert one company for today; never throws (status carries the outcome). */
+    public Map<String, Object> scrapeOne(String companyCode) {
+        try {
+            boolean saved = scrapeAndSave(companyCode, LocalDate.now(COLOMBO));
+            return Map.of("companyCode", companyCode, "status", saved ? "saved" : "skipped");
+        } catch (Exception e) {
+            log.warn("CSE market-data failed for {}: {}", companyCode, e.getMessage());
+            return Map.of("companyCode", companyCode, "status", "error", "error", String.valueOf(e.getMessage()));
+        }
+    }
+
     /** Fetch a single company's snapshot and upsert it for the given trade date. */
     public boolean scrapeAndSave(String companyCode, LocalDate tradeDate) throws Exception {
         JsonNode info = fetchSymbolInfo(companyCode);
