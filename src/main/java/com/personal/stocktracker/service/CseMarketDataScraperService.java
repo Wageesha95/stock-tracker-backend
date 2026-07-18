@@ -10,6 +10,7 @@ import com.personal.stocktracker.repository.CseScrapeStatusRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -64,20 +65,51 @@ public class CseMarketDataScraperService {
     /** Persist the outcome of a run (server-stamped time) for the admin panel status display. */
     public CseScrapeStatus recordRun(int total, int saved, int failed, String tradeDate) {
         String status = failed == 0 ? "success" : (saved > 0 ? "partial" : "failed");
-        CseScrapeStatus s = CseScrapeStatus.builder()
-                .id(CseScrapeStatus.SINGLETON_ID)
-                .lastRunAt(LocalDateTime.now())
-                .tradeDate(tradeDate)
-                .total(total)
-                .saved(saved)
-                .failed(failed)
-                .status(status)
-                .build();
-        return cseScrapeStatusRepository.save(s);
+        CseScrapeStatus s = cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID)
+                .orElseGet(() -> CseScrapeStatus.builder().id(CseScrapeStatus.SINGLETON_ID).build());
+        s.setLastRunAt(LocalDateTime.now());
+        s.setTradeDate(tradeDate);
+        s.setTotal(total);
+        s.setSaved(saved);
+        s.setFailed(failed);
+        s.setStatus(status);
+        return cseScrapeStatusRepository.save(s); // autoEnabled preserved
     }
 
     public CseScrapeStatus getStatus() {
         return cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID).orElse(null);
+    }
+
+    /** Auto-fetch is on unless explicitly turned off (null defaults to on). */
+    public boolean isAutoEnabled() {
+        CseScrapeStatus s = getStatus();
+        return s == null || s.getAutoEnabled() == null || s.getAutoEnabled();
+    }
+
+    public CseScrapeStatus setAutoEnabled(boolean enabled) {
+        CseScrapeStatus s = cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID)
+                .orElseGet(() -> CseScrapeStatus.builder().id(CseScrapeStatus.SINGLETON_ID).build());
+        s.setAutoEnabled(enabled);
+        return cseScrapeStatusRepository.save(s);
+    }
+
+    /**
+     * Server-side auto-fetch on Colombo quarter-hour marks (00:00, 00:15, …) — runs 24/7
+     * regardless of whether anyone is logged in, as long as the backend is up. Toggle via
+     * the admin panel (isAutoEnabled).
+     */
+    @Scheduled(cron = "0 0/15 * * * *", zone = "Asia/Colombo")
+    public void scheduledFetch() {
+        if (!isAutoEnabled()) {
+            log.debug("CSE auto-fetch is disabled; skipping scheduled run");
+            return;
+        }
+        try {
+            log.info("Running scheduled CSE market-data fetch");
+            scrapeAllCompanies();
+        } catch (Exception e) {
+            log.error("Scheduled CSE fetch failed: {}", e.getMessage(), e);
+        }
     }
 
     /**

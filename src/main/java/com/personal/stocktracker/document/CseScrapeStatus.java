@@ -28,4 +28,7 @@ public class CseScrapeStatus {
     private int saved;
     private int failed;
     private String status;             // success | partial | failed
+
+    // Whether the server's 15-min auto-fetch is on. Null = on (default).
+    private Boolean autoEnabled;
 }

@@ -35,10 +35,16 @@ public class CseMarketDataController {
         return ResponseEntity.ok(Map.of("tradeDate", cseMarketDataScraperService.resolveTradeDate().toString()));
     }
 
-    /** Last-run time (server) + status, for the admin panel. */
+    /** Last-run time (server) + status + auto-fetch flag, for the admin panel. */
     @GetMapping("/api/admin/scrape/market-data-cse/status")
     public ResponseEntity<CseScrapeStatus> status() {
         return ResponseEntity.ok(cseMarketDataScraperService.getStatus());
+    }
+
+    /** Start/stop the server's 15-min auto-fetch. */
+    @PostMapping("/api/admin/scrape/market-data-cse/auto")
+    public ResponseEntity<CseScrapeStatus> setAuto(@RequestParam boolean enabled) {
+        return ResponseEntity.ok(cseMarketDataScraperService.setAutoEnabled(enabled));
     }
 
     /** The UI records the outcome after its per-company loop finishes (server stamps the time). */
