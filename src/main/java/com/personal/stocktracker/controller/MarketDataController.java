@@ -289,7 +289,8 @@ public class MarketDataController {
         long deleted;
         String description;
         if (from != null && to != null) {
-            deleted = marketDataRepository.deleteByTradeDateBetween(from, to);
+            // Inclusive of both boundary dates (plain Between is exclusive in Mongo).
+            deleted = marketDataRepository.deleteByTradeDateGreaterThanEqualAndTradeDateLessThanEqual(from, to);
             description = from + " to " + to;
         } else if (from != null) {
             deleted = marketDataRepository.deleteByTradeDateGreaterThanEqual(from);

@@ -21,7 +21,11 @@ public interface MarketDataRepository extends MongoRepository<MarketData, String
 
     long deleteByTradeDateBefore(LocalDate date);
 
+    // NOTE: Spring Data MongoDB's "Between" is EXCLUSIVE on both ends, which silently skips
+    // records on the boundary dates (e.g. the newest day). Use the inclusive variant below.
     long deleteByTradeDateBetween(LocalDate from, LocalDate to);
+
+    long deleteByTradeDateGreaterThanEqualAndTradeDateLessThanEqual(LocalDate from, LocalDate to);
 
     long deleteByTradeDateGreaterThanEqual(LocalDate from);
 
