@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -46,6 +47,7 @@ public class CseMarketDataScraperService {
     private final CompanyRepository companyRepository;
 
     private static final String CSE_INFO_URL = "https://www.cse.lk/api/companyInfoSummery";
+    private static final String CSE_MARKET_SUMMARY_URL = "https://www.cse.lk/api/marketSummery";
     // App company codes omit the CSE symbol's trailing "0000" (e.g. "JKH.N" -> "JKH.N0000").
     private static final String SYMBOL_SUFFIX = "0000";
     private static final ZoneId COLOMBO = ZoneId.of("Asia/Colombo");
@@ -56,10 +58,37 @@ public class CseMarketDataScraperService {
             .connectTimeout(Duration.ofSeconds(15))
             .build();
 
-    /** Fetch and upsert today's market data for every registered company. */
+    /**
+     * The last actual trading day per CSE (its marketSummery.tradeDate), so data fetched
+     * on a weekend/holiday is aligned to the day it really belongs to — not calendar today.
+     * Falls back to today (Colombo) if the market summary can't be read.
+     */
+    public LocalDate resolveTradeDate() {
+        try {
+            HttpRequest req = HttpRequest.newBuilder(URI.create(CSE_MARKET_SUMMARY_URL))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("User-Agent", "Mozilla/5.0 (stock-tracker CSE market-data)")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() == 200) {
+                JsonNode td = mapper.readTree(res.body()).get("tradeDate");
+                if (td != null && td.isNumber()) {
+                    return Instant.ofEpochMilli(td.asLong()).atZone(COLOMBO).toLocalDate();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not resolve CSE market trade date; using today: {}", e.getMessage());
+        }
+        return LocalDate.now(COLOMBO);
+    }
+
+    /** Fetch and upsert market data for every registered company, aligned to the last market day. */
     public Map<String, Object> scrapeAllCompanies() {
         List<Company> companies = companyRepository.findAll();
-        LocalDate tradeDate = LocalDate.now(COLOMBO);
+        LocalDate tradeDate = resolveTradeDate();
         log.info("CSE market-data scrape: {} companies for {}", companies.size(), tradeDate);
 
         int succeeded = 0, failed = 0;
@@ -96,11 +125,16 @@ public class CseMarketDataScraperService {
         );
     }
 
-    /** Fetch + upsert one company for today; never throws (status carries the outcome). */
-    public Map<String, Object> scrapeOne(String companyCode) {
+    /**
+     * Fetch + upsert one company; never throws (status carries the outcome). The caller
+     * passes the resolved last-market-day so a whole run aligns to one date (and avoids
+     * re-fetching the market summary per company); null resolves it here as a fallback.
+     */
+    public Map<String, Object> scrapeOne(String companyCode, LocalDate tradeDate) {
+        LocalDate date = tradeDate != null ? tradeDate : resolveTradeDate();
         try {
-            boolean saved = scrapeAndSave(companyCode, LocalDate.now(COLOMBO));
-            return Map.of("companyCode", companyCode, "status", saved ? "saved" : "skipped");
+            boolean saved = scrapeAndSave(companyCode, date);
+            return Map.of("companyCode", companyCode, "status", saved ? "saved" : "skipped", "tradeDate", date.toString());
         } catch (Exception e) {
             log.warn("CSE market-data failed for {}: {}", companyCode, e.getMessage());
             return Map.of("companyCode", companyCode, "status", "error", "error", String.valueOf(e.getMessage()));
