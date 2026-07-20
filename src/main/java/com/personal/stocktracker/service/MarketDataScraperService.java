@@ -3,8 +3,10 @@ package com.personal.stocktracker.service;
 import com.personal.stocktracker.config.ScraperConfig;
 import com.personal.stocktracker.document.Company;
 import com.personal.stocktracker.document.MarketData;
+import com.personal.stocktracker.document.MarketDataSettings;
 import com.personal.stocktracker.repository.CompanyRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
+import com.personal.stocktracker.repository.MarketDataSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
@@ -31,8 +33,26 @@ public class MarketDataScraperService {
     private final MarketDataRepository marketDataRepository;
     private final CompanyRepository companyRepository;
     private final ScraperConfig scraperConfig;
+    private final MarketDataSettingsRepository marketDataSettingsRepository;
 
     private static final String CHART_URL = "https://www.tradingview.com/chart/?symbol=CSELK:%s0000";
+
+    /** Admin settings singleton (created on first read with defaults). */
+    public MarketDataSettings getSettings() {
+        return marketDataSettingsRepository.findById(MarketDataSettings.SINGLETON_ID)
+                .orElseGet(() -> MarketDataSettings.builder().id(MarketDataSettings.SINGLETON_ID).build());
+    }
+
+    /** Whether the TradingView scraper is allowed to overwrite CSE-sourced rows (default: false). */
+    public boolean isScraperOverwriteCseEnabled() {
+        return Boolean.TRUE.equals(getSettings().getScraperOverwriteCse());
+    }
+
+    public MarketDataSettings setScraperOverwriteCse(boolean enabled) {
+        MarketDataSettings s = getSettings();
+        s.setScraperOverwriteCse(enabled);
+        return marketDataSettingsRepository.save(s);
+    }
 
     /**
      * Scrape historical OHLC data for a single company from TradingView chart.
@@ -468,6 +488,7 @@ public class MarketDataScraperService {
             existingByDate.put(md.getTradeDate(), md);
         }
 
+        boolean overwriteCse = isScraperOverwriteCseEnabled();
         LocalDateTime now = LocalDateTime.now();
         List<MarketData> toSave = new ArrayList<>();
         int newCount = 0;
@@ -494,8 +515,8 @@ public class MarketDataScraperService {
 
                 BigDecimal open = toBigDecimal(bar.get("open"));
                 MarketData existing = existingByDate.get(date);
-                if (existing != null && "CSE".equals(existing.getSource())) {
-                    // Never overwrite a row sourced from the CSE API with scraped data.
+                if (existing != null && "CSE".equals(existing.getSource()) && !overwriteCse) {
+                    // Protect CSE-API rows from scraped data unless the admin toggle allows overwriting.
                     skippedCount++;
                     continue;
                 }
@@ -570,8 +591,8 @@ public class MarketDataScraperService {
         BigDecimal volume = toBigDecimal(bar.get("volume"));
 
         Optional<MarketData> existing = marketDataRepository.findByCompanyCodeAndTradeDate(companyCode, date);
-        if (existing.isPresent() && "CSE".equals(existing.get().getSource())) {
-            // Never overwrite a CSE-sourced row with scraped data.
+        if (existing.isPresent() && "CSE".equals(existing.get().getSource()) && !isScraperOverwriteCseEnabled()) {
+            // Protect CSE-API rows from scraped data unless the admin toggle allows overwriting.
             return Map.of("date", date.toString(), "status", "skipped-cse");
         }
         boolean isNew;

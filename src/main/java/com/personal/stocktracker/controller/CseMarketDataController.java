@@ -2,6 +2,7 @@ package com.personal.stocktracker.controller;
 
 import com.personal.stocktracker.service.CseMarketDataScraperService;
 import lombok.RequiredArgsConstructor;
+import com.personal.stocktracker.document.CseScrapeLog;
 import com.personal.stocktracker.document.CseScrapeStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,7 +12,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -41,20 +46,33 @@ public class CseMarketDataController {
         return ResponseEntity.ok(cseMarketDataScraperService.getStatus());
     }
 
+    /** Execution log (one row per run) for the admin panel; defaults to the last 7 days. */
+    @GetMapping("/api/admin/scrape/market-data-cse/log")
+    public ResponseEntity<List<CseScrapeLog>> log(@RequestParam(defaultValue = "7") int days) {
+        return ResponseEntity.ok(cseMarketDataScraperService.getRecentLogs(days));
+    }
+
     /** Start/stop the server's 15-min auto-fetch. */
     @PostMapping("/api/admin/scrape/market-data-cse/auto")
     public ResponseEntity<CseScrapeStatus> setAuto(@RequestParam boolean enabled) {
         return ResponseEntity.ok(cseMarketDataScraperService.setAutoEnabled(enabled));
     }
 
-    /** The UI records the outcome after its per-company loop finishes (server stamps the time). */
+    /** The UI records the outcome after its per-company loop finishes (server stamps the end time). */
     @PostMapping("/api/admin/scrape/market-data-cse/record")
     public ResponseEntity<CseScrapeStatus> record(@RequestBody Map<String, Object> body) {
         int total = ((Number) body.getOrDefault("total", 0)).intValue();
         int saved = ((Number) body.getOrDefault("saved", 0)).intValue();
         int failed = ((Number) body.getOrDefault("failed", 0)).intValue();
         String tradeDate = body.get("tradeDate") != null ? body.get("tradeDate").toString() : null;
-        return ResponseEntity.ok(cseMarketDataScraperService.recordRun(total, saved, failed, tradeDate));
+        // The UI sends an ISO instant for when its loop started; align it to the server zone so
+        // start and end times are comparable (end is LocalDateTime.now() in that same zone).
+        LocalDateTime startedAt = null;
+        Object sa = body.get("startedAt");
+        if (sa != null && !sa.toString().isBlank()) {
+            startedAt = Instant.parse(sa.toString()).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        }
+        return ResponseEntity.ok(cseMarketDataScraperService.recordRun(total, saved, failed, tradeDate, startedAt, "manual"));
     }
 
     /** Per-company fetch, so the UI can loop and show live progress. */

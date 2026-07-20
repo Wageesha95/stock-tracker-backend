@@ -3,9 +3,11 @@ package com.personal.stocktracker.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.personal.stocktracker.document.Company;
+import com.personal.stocktracker.document.CseScrapeLog;
 import com.personal.stocktracker.document.CseScrapeStatus;
 import com.personal.stocktracker.document.MarketData;
 import com.personal.stocktracker.repository.CompanyRepository;
+import com.personal.stocktracker.repository.CseScrapeLogRepository;
 import com.personal.stocktracker.repository.CseScrapeStatusRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +52,7 @@ public class CseMarketDataScraperService {
     private final MarketDataRepository marketDataRepository;
     private final CompanyRepository companyRepository;
     private final CseScrapeStatusRepository cseScrapeStatusRepository;
+    private final CseScrapeLogRepository cseScrapeLogRepository;
 
     private static final String CSE_INFO_URL = "https://www.cse.lk/api/companyInfoSummery";
     private static final String CSE_MARKET_SUMMARY_URL = "https://www.cse.lk/api/marketSummery";
@@ -56,28 +60,66 @@ public class CseMarketDataScraperService {
     private static final String SYMBOL_SUFFIX = "0000";
     private static final ZoneId COLOMBO = ZoneId.of("Asia/Colombo");
     private static final long DELAY_MS = 250L; // polite spacing between requests
+    // Pre-open window (Colombo): fetch but don't persist — pre-open figures aren't final.
+    private static final LocalTime PRE_OPEN_START = LocalTime.of(7, 30);
+    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .build();
 
-    /** Persist the outcome of a run (server-stamped time) for the admin panel status display. */
-    public CseScrapeStatus recordRun(int total, int saved, int failed, String tradeDate) {
+    /**
+     * Persist the outcome of a run for the admin panel: updates the singleton "last run" status
+     * and appends a row to the execution log. The end time is server-stamped; {@code startedAt}
+     * is when the run began (null falls back to the end time, i.e. an unknown/zero duration).
+     */
+    public CseScrapeStatus recordRun(int total, int saved, int failed, String tradeDate,
+                                     LocalDateTime startedAt, String trigger) {
+        LocalDateTime endedAt = LocalDateTime.now();
         String status = failed == 0 ? "success" : (saved > 0 ? "partial" : "failed");
+
         CseScrapeStatus s = cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID)
                 .orElseGet(() -> CseScrapeStatus.builder().id(CseScrapeStatus.SINGLETON_ID).build());
-        s.setLastRunAt(LocalDateTime.now());
+        s.setLastRunAt(endedAt);
         s.setTradeDate(tradeDate);
         s.setTotal(total);
         s.setSaved(saved);
         s.setFailed(failed);
         s.setStatus(status);
-        return cseScrapeStatusRepository.save(s); // autoEnabled preserved
+        cseScrapeStatusRepository.save(s); // autoEnabled preserved
+
+        cseScrapeLogRepository.save(CseScrapeLog.builder()
+                .startedAt(startedAt != null ? startedAt : endedAt)
+                .endedAt(endedAt)
+                .tradeDate(tradeDate)
+                .total(total)
+                .saved(saved)
+                .failed(failed)
+                .status(status)
+                .trigger(trigger != null ? trigger : "manual")
+                .build());
+
+        return s;
     }
 
     public CseScrapeStatus getStatus() {
         return cseScrapeStatusRepository.findById(CseScrapeStatus.SINGLETON_ID).orElse(null);
+    }
+
+    /**
+     * Pre-open window 07:30–09:00 (Colombo): we still run the fetch (to exercise the pipeline and
+     * show live progress) but skip persisting, because the exchange's pre-open figures aren't final.
+     */
+    public boolean isPersistenceSuppressed() {
+        LocalTime now = LocalTime.now(COLOMBO);
+        return !now.isBefore(PRE_OPEN_START) && now.isBefore(MARKET_OPEN);
+    }
+
+    /** Execution log for the admin panel — runs started within the last {@code days} days, newest first. */
+    public List<CseScrapeLog> getRecentLogs(int days) {
+        LocalDateTime from = LocalDateTime.now().minusDays(days);
+        return cseScrapeLogRepository.findByStartedAtGreaterThanEqualOrderByStartedAtDesc(from);
     }
 
     /** Auto-fetch is on unless explicitly turned off (null defaults to on). */
@@ -106,7 +148,7 @@ public class CseMarketDataScraperService {
         }
         try {
             log.info("Running scheduled CSE market-data fetch");
-            scrapeAllCompanies();
+            scrapeAllCompanies("auto");
         } catch (Exception e) {
             log.error("Scheduled CSE fetch failed: {}", e.getMessage(), e);
         }
@@ -141,6 +183,12 @@ public class CseMarketDataScraperService {
 
     /** Fetch and upsert market data for every registered company, aligned to the last market day. */
     public Map<String, Object> scrapeAllCompanies() {
+        return scrapeAllCompanies("manual");
+    }
+
+    /** As {@link #scrapeAllCompanies()}, recording the run under the given trigger (auto | manual). */
+    public Map<String, Object> scrapeAllCompanies(String trigger) {
+        LocalDateTime startedAt = LocalDateTime.now();
         List<Company> companies = companyRepository.findAll();
         LocalDate tradeDate = resolveTradeDate();
         log.info("CSE market-data scrape: {} companies for {}", companies.size(), tradeDate);
@@ -155,7 +203,8 @@ public class CseMarketDataScraperService {
                 if (saved) {
                     succeeded++;
                 } else {
-                    details.add(Map.of("companyCode", code, "skipped", "no price"));
+                    details.add(Map.of("companyCode", code, "skipped",
+                            isPersistenceSuppressed() ? "pre-open (not saved)" : "no price"));
                 }
             } catch (Exception e) {
                 failed++;
@@ -168,7 +217,7 @@ public class CseMarketDataScraperService {
             }
         }
 
-        recordRun(companies.size(), succeeded, failed, tradeDate.toString());
+        recordRun(companies.size(), succeeded, failed, tradeDate.toString(), startedAt, trigger);
         log.info("CSE market-data scrape complete: {} saved, {} failed of {}", succeeded, failed, companies.size());
         return Map.of(
                 "source", "cse.lk",
@@ -189,7 +238,8 @@ public class CseMarketDataScraperService {
         LocalDate date = tradeDate != null ? tradeDate : resolveTradeDate();
         try {
             boolean saved = scrapeAndSave(companyCode, date);
-            return Map.of("companyCode", companyCode, "status", saved ? "saved" : "skipped", "tradeDate", date.toString());
+            String status = saved ? "saved" : (isPersistenceSuppressed() ? "not-saved" : "skipped");
+            return Map.of("companyCode", companyCode, "status", status, "tradeDate", date.toString());
         } catch (Exception e) {
             log.warn("CSE market-data failed for {}: {}", companyCode, e.getMessage());
             return Map.of("companyCode", companyCode, "status", "error", "error", String.valueOf(e.getMessage()));
@@ -204,6 +254,12 @@ public class CseMarketDataScraperService {
         BigDecimal lastTrade = bd(info, "lastTradedPrice");
         if (lastTrade == null) lastTrade = bd(info, "closingPrice");
         if (lastTrade == null) return false; // nothing traded / no price — skip
+
+        // The fetch has run; during the pre-open window we deliberately don't persist the snapshot.
+        if (isPersistenceSuppressed()) {
+            log.debug("CSE pre-open window (07:30–09:00); fetched {} but skipping persistence", companyCode);
+            return false;
+        }
 
         // Day-over-day change vs the previous market day we already have data for; fall back to
         // CSE's reported previousClose when there's no earlier stored row.
