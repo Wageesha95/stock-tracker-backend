@@ -6,6 +6,7 @@ import com.personal.stocktracker.document.MarketData;
 import com.personal.stocktracker.document.ShareSplit;
 import com.personal.stocktracker.document.Transaction;
 import com.personal.stocktracker.document.TransactionType;
+import com.personal.stocktracker.document.UserSettings;
 import com.personal.stocktracker.dto.PortfolioItem;
 import com.personal.stocktracker.dto.RealizedGainItem;
 import com.personal.stocktracker.repository.CompanyRepository;
@@ -13,6 +14,7 @@ import com.personal.stocktracker.repository.IndustryGroupRepository;
 import com.personal.stocktracker.repository.MarketDataRepository;
 import com.personal.stocktracker.repository.ShareSplitRepository;
 import com.personal.stocktracker.repository.TransactionRepository;
+import com.personal.stocktracker.repository.UserSettingsRepository;
 import com.personal.stocktracker.util.TransactionComparators;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -42,6 +44,7 @@ public class DashboardController {
     private final CompanyRepository companyRepository;
     private final IndustryGroupRepository industryGroupRepository;
     private final ShareSplitRepository shareSplitRepository;
+    private final UserSettingsRepository userSettingsRepository;
     private final com.personal.stocktracker.service.MarketDataService marketDataService;
 
     /**
@@ -351,13 +354,20 @@ public class DashboardController {
         double totalInterestD = 0.0;
         LocalDate lastAccrual = null;
 
+        // The rate the user considers their money could have earned elsewhere.
+        double opportunityCostRatePct = userSettingsRepository.findByUserId(username)
+                .map(UserSettings::getOpportunityCostRate)
+                .filter(Objects::nonNull)
+                .orElse(UserSettings.DEFAULT_OPPORTUNITY_COST_RATE);
+        double annualRate = opportunityCostRatePct / 100.0;
+
         for (Transaction tx : chronologicalTx) {
             if (lastAccrual != null) {
                 long periodDays = ChronoUnit.DAYS.between(lastAccrual, tx.getDate());
                 if (periodDays > 0) {
                     for (Deque<Lot> lots : activeLots.values()) {
                         for (Lot lot : lots) {
-                            double inc = lot.remaining * lot.costPerShare * 0.065 * periodDays / 365.0;
+                            double inc = lot.remaining * lot.costPerShare * annualRate * periodDays / 365.0;
                             lot.accruedInterest += inc;
                             totalInterestD += inc;
                         }
@@ -412,7 +422,7 @@ public class DashboardController {
             if (remainingDays > 0) {
                 for (Deque<Lot> lots : activeLots.values()) {
                     for (Lot lot : lots) {
-                        double inc = lot.remaining * lot.costPerShare * 0.065 * remainingDays / 365.0;
+                        double inc = lot.remaining * lot.costPerShare * annualRate * remainingDays / 365.0;
                         lot.accruedInterest += inc;
                         totalInterestD += inc;
                     }
@@ -535,7 +545,7 @@ public class DashboardController {
         result.put("realizedItems", realizedItems);
         result.put("opportunityCost", totalInterest.setScale(4, RoundingMode.HALF_UP));
         result.put("interestBreakdown", breakdown);
-        result.put("bankInterestRate", 6.5);
+        result.put("bankInterestRate", opportunityCostRatePct);
         result.put("sectors", sectors);
         return ResponseEntity.ok(result);
     }

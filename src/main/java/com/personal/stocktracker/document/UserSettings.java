@@ -39,4 +39,25 @@ public class UserSettings {
 
     @Builder.Default
     private Map<String, Integer> companyTtmWeeks = new HashMap<>();
+
+    /**
+     * Annual rate, as a percentage, used for the opportunity-cost calculation — the
+     * interest the money tied up in each buy lot could have earned instead. Stored as
+     * a percentage (6.5 means 6.5%/yr) to match what the user types and what the
+     * dashboard reports back as bankInterestRate.
+     */
+    @Builder.Default
+    private Double opportunityCostRate = DEFAULT_OPPORTUNITY_COST_RATE;
+
+    /** Typical local savings rate; the value the feature shipped with. */
+    public static final double DEFAULT_OPPORTUNITY_COST_RATE = 6.5;
+
+    /**
+     * The configured rate as a fraction ready to multiply into an interest formula,
+     * falling back to the default for settings documents written before the rate
+     * existed (where the field reads back as null).
+     */
+    public double opportunityCostRateFraction() {
+        return (opportunityCostRate != null ? opportunityCostRate : DEFAULT_OPPORTUNITY_COST_RATE) / 100.0;
+    }
 }
