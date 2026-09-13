@@ -42,6 +42,13 @@ public class Transaction {
     // confirmation PDF's broker). Null for manually-entered transactions.
     private String brokerId;
 
+    // When shares arrive by transfer rather than purchase, the date the money was
+    // actually committed — the cost-weighted average acquisition date of the shares
+    // moved. Opportunity cost accrues from here, not from the transfer date, since
+    // moving brokers does not give the money back. Null for ordinary trades, where
+    // `date` already is the acquisition date.
+    private LocalDate costBasisDate;
+
     // When true, the transaction is excluded from all portfolio/gain calculations.
     // Used to retire a ".R" rights holding (converted to shares, or lapsed/wasted).
     private Boolean disabled;

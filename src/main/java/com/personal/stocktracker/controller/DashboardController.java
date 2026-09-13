@@ -387,26 +387,49 @@ public class DashboardController {
             if (tx.getType().isAcquisition()) {
                 if (adjCount > 0) {
                     double lotCost = adjPrice.doubleValue() * adjCount + tx.getCommission().doubleValue();
-                    Lot lot = new Lot(code, tx.getDate(), adjCount, lotCost / adjCount);
+                    // Transferred shares keep the date their money was committed, so the
+                    // lot is dated there and immediately credited with the interest that
+                    // had built up before the move. The matching TRANSFER_OUT hands that
+                    // same amount over, so nothing is counted twice.
+                    LocalDate opened = tx.getCostBasisDate() != null ? tx.getCostBasisDate() : tx.getDate();
+                    Lot lot = new Lot(code, opened, adjCount, lotCost / adjCount);
+                    if (opened.isBefore(tx.getDate())) {
+                        long carriedDays = ChronoUnit.DAYS.between(opened, tx.getDate());
+                        double carried = lotCost * annualRate * carriedDays / 365.0;
+                        lot.accruedInterest += carried;
+                        totalInterestD += carried;
+                    }
                     openQueue.addLast(lot);
                     history.add(lot);
                 }
             } else if (tx.getType().isDisposal()) {
                 // Both legs of a transfer are walked rather than skipped: under an active
                 // broker filter only one leg is in scope, so skipping would leave the lots
-                // unbalanced. The trade-off is that an unfiltered view restarts the
-                // interest-accrual clock for transferred shares on the TRANSFER_IN date.
+                // unbalanced.
                 boolean transferred = tx.getType() == TransactionType.TRANSFER_OUT;
                 double toSell = adjCount;
                 while (toSell > 0 && !openQueue.isEmpty()) {
                     Lot lot = openQueue.peekFirst();
                     if (lot.remaining <= toSell) {
                         toSell -= lot.remaining;
+                        if (transferred) {
+                            // The interest this lot built up leaves with the shares: the
+                            // TRANSFER_IN lot was credited with it, so drop it here or the
+                            // same waiting time would be charged twice.
+                            totalInterestD -= lot.accruedInterest;
+                            lot.accruedInterest = 0.0;
+                        }
                         lot.remaining = 0;
                         lot.endDate = tx.getDate();
                         lot.status = transferred ? "transferred" : "sold";
                         openQueue.pollFirst();
                     } else {
+                        if (transferred) {
+                            // Only the moved slice hands its interest over.
+                            double movedShare = lot.accruedInterest * (toSell / lot.remaining);
+                            totalInterestD -= movedShare;
+                            lot.accruedInterest -= movedShare;
+                        }
                         lot.remaining -= toSell;
                         lot.status = "partial";
                         // partial fills do not close the lot; it continues to accrue

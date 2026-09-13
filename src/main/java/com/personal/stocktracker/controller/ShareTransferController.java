@@ -17,7 +17,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -93,11 +95,14 @@ public class ShareTransferController {
         // the transfer cost-neutral: the cost removed from one broker is exactly the cost
         // added to the other, whatever is booked afterwards.
         BigDecimal price = holding.avgPrice();
+        // Carried onto both legs so opportunity cost keeps accruing from when the money
+        // was committed, not from the day the shares changed custody.
+        LocalDate basisDate = holding.weightedAcquisitionDate(count, date);
 
         Transaction out = transactionRepository.save(leg(username, companyCode, date, count, price,
-                TransactionType.TRANSFER_OUT, fromBrokerId));
+                TransactionType.TRANSFER_OUT, fromBrokerId, basisDate));
         Transaction in = transactionRepository.save(leg(username, companyCode, date, count, price,
-                TransactionType.TRANSFER_IN, toBrokerId));
+                TransactionType.TRANSFER_IN, toBrokerId, basisDate));
 
         ShareTransfer transfer = ShareTransfer.builder()
                 .userId(username)
@@ -146,6 +151,7 @@ public class ShareTransferController {
                     + ": only " + holding.shares + " held at the source broker on " + date);
         }
         BigDecimal price = holding.avgPrice();
+        LocalDate basisDate = holding.weightedAcquisitionDate(count, date);
 
         transfer.setDate(date);
         transfer.setCount(count);
@@ -155,8 +161,8 @@ public class ShareTransferController {
         transfer.setNote(note);
         shareTransferRepository.save(transfer);
 
-        updateLeg(transfer.getOutTransactionId(), date, count, price, fromBrokerId);
-        updateLeg(transfer.getInTransactionId(), date, count, price, toBrokerId);
+        updateLeg(transfer.getOutTransactionId(), date, count, price, fromBrokerId, basisDate);
+        updateLeg(transfer.getInTransactionId(), date, count, price, toBrokerId, basisDate);
 
         return ResponseEntity.ok(transfer);
     }
@@ -186,7 +192,8 @@ public class ShareTransferController {
     }
 
     private Transaction leg(String userId, String companyCode, LocalDate date, int count,
-                            BigDecimal price, TransactionType type, String brokerId) {
+                            BigDecimal price, TransactionType type, String brokerId,
+                            LocalDate costBasisDate) {
         return Transaction.builder()
                 .userId(userId)
                 .companyCode(companyCode)
@@ -197,11 +204,13 @@ public class ShareTransferController {
                 // A transfer carries no charges, by definition.
                 .commission(BigDecimal.ZERO)
                 .brokerId(brokerId)
+                .costBasisDate(costBasisDate)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
 
-    private void updateLeg(String transactionId, LocalDate date, int count, BigDecimal price, String brokerId) {
+    private void updateLeg(String transactionId, LocalDate date, int count, BigDecimal price,
+                           String brokerId, LocalDate costBasisDate) {
         if (transactionId == null) {
             return;
         }
@@ -210,6 +219,7 @@ public class ShareTransferController {
             tx.setCount(count);
             tx.setPrice(price);
             tx.setBrokerId(brokerId);
+            tx.setCostBasisDate(costBasisDate);
             transactionRepository.save(tx);
         });
     }
@@ -240,16 +250,22 @@ public class ShareTransferController {
                 case BUY, RIGHTS, SCRIP_DIVIDEND, IPO, TRANSFER_IN -> {
                     holding.shares += tx.getCount();
                     holding.cost = holding.cost.add(tx.getPrice().multiply(count)).add(tx.getCommission());
+                    // Shares that arrived by transfer keep the date their money was
+                    // originally committed, so a second transfer carries it on again.
+                    LocalDate acquiredOn = tx.getCostBasisDate() != null ? tx.getCostBasisDate() : tx.getDate();
+                    holding.lots.addLast(new Lot(acquiredOn, tx.getCount(), tx.getPrice()));
                 }
                 case SELL -> {
                     holding.cost = holding.cost.subtract(holding.avgPrice().multiply(count));
                     holding.shares -= tx.getCount();
+                    holding.consume(tx.getCount());
                 }
                 // An outbound transfer removes exactly the cost its own price represents,
                 // mirroring what the matching TRANSFER_IN added at the other broker.
                 case TRANSFER_OUT -> {
                     holding.cost = holding.cost.subtract(tx.getPrice().multiply(count));
                     holding.shares -= tx.getCount();
+                    holding.consume(tx.getCount());
                 }
             }
         }
@@ -269,12 +285,70 @@ public class ShareTransferController {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 
+    /** A parcel of shares and the date the money for them was committed. */
+    private static final class Lot {
+        private final LocalDate acquiredOn;
+        private final BigDecimal pricePerShare;
+        private int remaining;
+
+        private Lot(LocalDate acquiredOn, int remaining, BigDecimal pricePerShare) {
+            this.acquiredOn = acquiredOn;
+            this.remaining = remaining;
+            this.pricePerShare = pricePerShare;
+        }
+    }
+
     private static final class Holding {
         private int shares;
         private BigDecimal cost = BigDecimal.ZERO;
+        /**
+         * FIFO parcels, kept alongside the average-cost figures purely to answer "when
+         * were these particular shares acquired". The cost basis itself stays on the
+         * average-cost basis the rest of the app uses, so transfers stay price-neutral.
+         */
+        private final Deque<Lot> lots = new ArrayDeque<>();
 
         private BigDecimal avgPrice() {
             return shares > 0 ? cost.divide(BigDecimal.valueOf(shares), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+        }
+
+        /** Retire {@code count} shares oldest-first. */
+        private void consume(int count) {
+            int left = count;
+            while (left > 0 && !lots.isEmpty()) {
+                Lot lot = lots.peekFirst();
+                if (lot.remaining <= left) {
+                    left -= lot.remaining;
+                    lots.pollFirst();
+                } else {
+                    lot.remaining -= left;
+                    left = 0;
+                }
+            }
+        }
+
+        /**
+         * The acquisition date of the oldest {@code count} shares, weighted by the money
+         * each parcel represents. Interest accrues linearly in time for a fixed
+         * principal, so one cost-weighted date reproduces exactly the same accrual the
+         * individual parcels would have produced — no need to carry them all across.
+         */
+        private LocalDate weightedAcquisitionDate(int count, LocalDate fallback) {
+            BigDecimal weightedDays = BigDecimal.ZERO;
+            BigDecimal totalWeight = BigDecimal.ZERO;
+            int left = count;
+            for (Lot lot : lots) {
+                if (left <= 0) break;
+                int take = Math.min(left, lot.remaining);
+                BigDecimal weight = lot.pricePerShare.multiply(BigDecimal.valueOf(take));
+                weightedDays = weightedDays.add(weight.multiply(BigDecimal.valueOf(lot.acquiredOn.toEpochDay())));
+                totalWeight = totalWeight.add(weight);
+                left -= take;
+            }
+            if (totalWeight.compareTo(BigDecimal.ZERO) == 0) {
+                return fallback;
+            }
+            return LocalDate.ofEpochDay(weightedDays.divide(totalWeight, 0, RoundingMode.HALF_UP).longValue());
         }
     }
 }
