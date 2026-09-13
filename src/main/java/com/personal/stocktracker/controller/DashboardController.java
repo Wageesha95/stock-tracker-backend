@@ -161,7 +161,7 @@ public class DashboardController {
                 int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
                 BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
 
-                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
+                if (tx.getType().isAcquisition()) {
                     sharesHeld += adjCount;
                     costBasis = costBasis.add(adjPrice.multiply(BigDecimal.valueOf(adjCount)).add(tx.getCommission()));
                     if (mdDate != null && mdDate.equals(tx.getDate())) {
@@ -169,6 +169,11 @@ public class DashboardController {
                         dayGainFromTodayBuys = dayGainFromTodayBuys.add(
                                 lastTrade.subtract(adjPrice).multiply(BigDecimal.valueOf(adjCount)));
                     }
+                } else if (tx.getType() == TransactionType.TRANSFER_OUT) {
+                    // Not a disposal: removes exactly the cost its own price represents,
+                    // mirroring what the matching TRANSFER_IN adds at the other broker.
+                    costBasis = costBasis.subtract(adjPrice.multiply(BigDecimal.valueOf(adjCount)));
+                    sharesHeld -= adjCount;
                 } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avgAtSell = sharesHeld > 0
                             ? costBasis.divide(BigDecimal.valueOf(sharesHeld), 4, RoundingMode.HALF_UP)
@@ -234,9 +239,13 @@ public class DashboardController {
                 int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
                 BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
 
-                if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
+                if (tx.getType().isAcquisition()) {
                     buyShares += adjCount;
                     buyCost = buyCost.add(adjPrice.multiply(BigDecimal.valueOf(adjCount)).add(tx.getCommission()));
+                } else if (tx.getType() == TransactionType.TRANSFER_OUT) {
+                    // Moving brokers realizes nothing, so it contributes no realized-gain row.
+                    buyCost = buyCost.subtract(adjPrice.multiply(BigDecimal.valueOf(adjCount)));
+                    buyShares -= adjCount;
                 } else if (tx.getType() == TransactionType.SELL) {
                     BigDecimal avg = buyShares > 0 ? buyCost.divide(BigDecimal.valueOf(buyShares), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
                     BigDecimal sellRev = adjPrice.multiply(BigDecimal.valueOf(adjCount)).subtract(tx.getCommission());
@@ -272,6 +281,12 @@ public class DashboardController {
             for (Transaction tx : txns) {
                 if (tx.getType() == TransactionType.SELL) {
                     shares -= tx.getCount();
+                } else if (tx.getType() == TransactionType.TRANSFER_OUT) {
+                    // Transferred away before it lapsed — those shares, and the money paid
+                    // for them, belong to the receiving broker, not to this lapsed lot.
+                    shares -= tx.getCount();
+                    bought -= tx.getCount();
+                    cost = cost.subtract(tx.getPrice().multiply(BigDecimal.valueOf(tx.getCount())));
                 } else {
                     shares += tx.getCount();
                     bought += tx.getCount();
@@ -359,14 +374,19 @@ public class DashboardController {
             int adjCount = adjustCount(tx.getCount(), tx.getPrice(), code, tx.getDate(), allSplits);
             BigDecimal adjPrice = adjustPrice(tx.getPrice(), code, tx.getDate(), allSplits);
 
-            if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
+            if (tx.getType().isAcquisition()) {
                 if (adjCount > 0) {
                     double lotCost = adjPrice.doubleValue() * adjCount + tx.getCommission().doubleValue();
                     Lot lot = new Lot(code, tx.getDate(), adjCount, lotCost / adjCount);
                     openQueue.addLast(lot);
                     history.add(lot);
                 }
-            } else if (tx.getType() == TransactionType.SELL) {
+            } else if (tx.getType().isDisposal()) {
+                // Both legs of a transfer are walked rather than skipped: under an active
+                // broker filter only one leg is in scope, so skipping would leave the lots
+                // unbalanced. The trade-off is that an unfiltered view restarts the
+                // interest-accrual clock for transferred shares on the TRANSFER_IN date.
+                boolean transferred = tx.getType() == TransactionType.TRANSFER_OUT;
                 double toSell = adjCount;
                 while (toSell > 0 && !openQueue.isEmpty()) {
                     Lot lot = openQueue.peekFirst();
@@ -374,7 +394,7 @@ public class DashboardController {
                         toSell -= lot.remaining;
                         lot.remaining = 0;
                         lot.endDate = tx.getDate();
-                        lot.status = "sold";
+                        lot.status = transferred ? "transferred" : "sold";
                         openQueue.pollFirst();
                     } else {
                         lot.remaining -= toSell;

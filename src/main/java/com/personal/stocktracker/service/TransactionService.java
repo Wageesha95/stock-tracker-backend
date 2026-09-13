@@ -43,6 +43,7 @@ public class TransactionService {
                 .count(request.getCount())
                 .price(request.getPrice())
                 .commission(request.getCommission())
+                .brokerId(request.getBrokerId())
                 .createdAt(LocalDateTime.now())
                 .build();
 

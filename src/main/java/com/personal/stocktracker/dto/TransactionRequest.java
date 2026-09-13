@@ -32,4 +32,8 @@ public class TransactionRequest {
 
     @NotNull(message = "Commission is required")
     private BigDecimal commission;
+
+    // Broker this trade went through. Optional: null for manually-entered
+    // transactions that are not attributed to any broker.
+    private String brokerId;
 }

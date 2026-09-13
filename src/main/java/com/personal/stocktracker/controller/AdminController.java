@@ -46,7 +46,7 @@ public class AdminController {
             int shares = 0;
             for (Transaction t : txns) {
                 int c = t.getCount() != null ? t.getCount() : 0;
-                shares += (t.getType() == TransactionType.SELL) ? -c : c;
+                shares += t.getType().isDisposal() ? -c : c;
             }
             boolean disabled = txns.stream().allMatch(t -> Boolean.TRUE.equals(t.getDisabled()));
             Map<String, Object> m = new LinkedHashMap<>();
@@ -174,10 +174,9 @@ public class AdminController {
                 txns.sort(Comparator.comparing(Transaction::getDate));
                 int shares = 0;
                 for (Transaction tx : txns) {
-                    if (tx.getType() == TransactionType.BUY || tx.getType() == TransactionType.RIGHTS
-                            || tx.getType() == TransactionType.SCRIP_DIVIDEND || tx.getType() == TransactionType.IPO) {
+                    if (tx.getType().isAcquisition()) {
                         shares += tx.getCount();
-                    } else if (tx.getType() == TransactionType.SELL) {
+                    } else if (tx.getType().isDisposal()) {
                         shares -= tx.getCount();
                     }
                 }
